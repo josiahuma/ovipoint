@@ -62,6 +62,7 @@ export default async function EditEventPage({ params }: PageProps) {
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <AdminEventForm
             churchId={church.id}
+            churchSlug={church.slug}   // ✅ ADD THIS LINE
             initialEvent={event}
             returnTo={`/${church.slug}/admin`}
           />
