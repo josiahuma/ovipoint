@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/src/lib/supabaseClient';
+import Image from 'next/image';
+
 
 type AuthState = 'loading' | 'loggedIn' | 'loggedOut';
 
@@ -116,13 +118,21 @@ export function SiteHeader() {
               className="flex items-center gap-2"
               onClick={() => setMenuOpen(false)}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-600 text-sm font-bold text-white">
-                O
+              <div className="flex h-9 w-9 items-center justify-center">
+                <Image
+                  src="/logo.png"
+                  alt="Ovipoint logo"
+                  width={36}
+                  height={36}
+                  className="object-contain"
+                  priority
+                />
               </div>
+
               <div className="flex flex-col leading-tight">
                 <span className="text-xl font-bold tracking-tight">Ovipoint</span>
                 <span className="hidden text-xs text-slate-500 sm:inline">
-                  Bus pickup booking for churches &amp; groups
+                  Pickup booking for churches &amp; groups
                 </span>
               </div>
             </Link>
