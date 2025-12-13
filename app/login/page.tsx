@@ -107,7 +107,7 @@ export default function LoginPage() {
             disabled={loading}
             className="mt-2 w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
-            {loading ? 'Logging in…' : 'Login with Supabase'}
+            {loading ? 'Logging in…' : 'Login'}
           </button>
 
           <p className="text-[11px] text-slate-500">

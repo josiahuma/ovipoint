@@ -15,7 +15,7 @@ type PickupEvent = {
   church_id: number;
   title: string;
   pickup_date: string; // YYYY-MM-DD
-  capacity: number;
+  capacity: number; // per-slot capacity
   pickup_start_time: string; // HH:MM:SS
   pickup_end_time: string;   // HH:MM:SS
   interval_minutes: number;
@@ -28,6 +28,7 @@ type Booking = {
   phone: string;
   address: string;
   pickup_time: string; // HH:MM:SS
+  party_size?: number | null; // number of people in this booking
 };
 
 type BookingWithEvent = {
@@ -98,6 +99,7 @@ export function FindBookingForm() {
   const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editPickupTime, setEditPickupTime] = useState(''); // HH:MM
+  const [editPartySize, setEditPartySize] = useState<number>(1);
 
   const [eventBookings, setEventBookings] = useState<Booking[]>([]);
   const [saving, setSaving] = useState(false);
@@ -111,8 +113,6 @@ export function FindBookingForm() {
 
     if (q.length < 2) {
       setChurches([]);
-      // only clear selected church if user is actually editing query
-      // (we keep churchId as-is so they can still search bookings)
       return;
     }
 
@@ -188,7 +188,9 @@ export function FindBookingForm() {
     // 2. Find bookings by phone across those events
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
-      .select('id, pickup_event_id, name, phone, address, pickup_time')
+      .select(
+        'id, pickup_event_id, name, phone, address, pickup_time, party_size'
+      )
       .eq('phone', phone.trim())
       .in('pickup_event_id', eventIds);
 
@@ -236,11 +238,12 @@ export function FindBookingForm() {
     setEditPhone(bw.booking.phone || '');
     setEditAddress(bw.booking.address || '');
     setEditPickupTime(formatTime(bw.booking.pickup_time)); // HH:MM
+    setEditPartySize(bw.booking.party_size ?? 1);
 
-    // Load all bookings for this event (to see taken times)
+    // Load all bookings for this event (to see taken people per time slot)
     const { data: bookings, error } = await supabase
       .from('bookings')
-      .select('id, pickup_time')
+      .select('id, pickup_time, party_size')
       .eq('pickup_event_id', bw.event.id);
 
     if (error) {
@@ -249,6 +252,14 @@ export function FindBookingForm() {
     } else {
       setEventBookings((bookings || []) as Booking[]);
     }
+  };
+
+  const handleExitEdit = () => {
+    // Safe way to leave edit mode without cancelling the booking
+    setSelected(null);
+    setSaveError(null);
+    setSaveSuccess(null);
+    setEventBookings([]);
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -263,10 +274,35 @@ export function FindBookingForm() {
       return;
     }
 
+    const partySize = editPartySize || 1;
+
     setSaving(true);
 
     const fullTime =
       editPickupTime.length === 5 ? `${editPickupTime}:00` : editPickupTime;
+
+    // Capacity check at the time of saving (in case things changed)
+    const perSlotCapacity = selected.event.capacity;
+    const peopleByTime: Record<string, number> = {};
+    eventBookings.forEach((b) => {
+      if (b.id === selected.booking.id) return; // ignore this booking
+      const short = formatTime(b.pickup_time);
+      const p = b.party_size ?? 1;
+      peopleByTime[short] = (peopleByTime[short] || 0) + p;
+    });
+
+    const slotShort = formatTime(fullTime);
+    const originalShort = formatTime(selected.booking.pickup_time);
+    const usedOthers = peopleByTime[slotShort] ?? 0;
+    const remaining = perSlotCapacity - usedOthers;
+
+    if (slotShort !== originalShort && remaining < partySize) {
+      setSaveError(
+        'That time slot has just become full for your group size. Please choose another time.'
+      );
+      setSaving(false);
+      return;
+    }
 
     const { error } = await supabase
       .from('bookings')
@@ -275,18 +311,13 @@ export function FindBookingForm() {
         phone: editPhone.trim(),
         address: editAddress.trim(),
         pickup_time: fullTime,
+        party_size: partySize,
       })
       .eq('id', selected.booking.id);
 
     if (error) {
       console.error(error);
-      if (error.message?.toLowerCase().includes('unique')) {
-        setSaveError(
-          'That time slot has just been taken. Please choose another time.'
-        );
-      } else {
-        setSaveError('Failed to update your booking. Please try again.');
-      }
+      setSaveError('Failed to update your booking. Please try again.');
       setSaving(false);
       return;
     }
@@ -298,8 +329,8 @@ export function FindBookingForm() {
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }
     );
 
-    const userMsg = `Your bus pickup booking has been updated: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
-    const adminMsg = `Booking updated: ${editName} (${editPhone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
+    const userMsg = `Your bus pickup booking has been updated: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr} for ${partySize} person(s).`;
+    const adminMsg = `Booking updated: ${editName} (${editPhone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}, party size ${partySize}.`;
 
     await sendSms(editPhone, userMsg);
     await sendSms(currentChurch?.sms_contact_phone, adminMsg);
@@ -307,10 +338,10 @@ export function FindBookingForm() {
     setSaveSuccess('Your booking has been updated.');
     setSaving(false);
 
-    // Refresh event bookings
+    // Refresh event bookings (for slot capacities)
     const { data: bookings, error: reloadErr } = await supabase
       .from('bookings')
-      .select('id, pickup_time')
+      .select('id, pickup_time, party_size')
       .eq('pickup_event_id', selected.event.id);
 
     if (!reloadErr) {
@@ -322,7 +353,7 @@ export function FindBookingForm() {
     if (!selected) return;
 
     const confirmed = window.confirm(
-      'Are you sure you want to cancel this booking? This will free up your seat.'
+      'Are you sure you want to cancel this booking completely? This will free up your seats.'
     );
     if (!confirmed) return;
 
@@ -342,15 +373,15 @@ export function FindBookingForm() {
       return;
     }
 
-    // SMS notifications
     const eventTimeStr = formatTime(selected.booking.pickup_time);
     const eventDateStr = new Date(selected.event.pickup_date).toLocaleDateString(
       undefined,
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }
     );
+    const partySize = selected.booking.party_size ?? 1;
 
-    const userMsg = `Your bus pickup booking has been cancelled: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
-    const adminMsg = `Booking cancelled: ${selected.booking.name} (${selected.booking.phone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
+    const userMsg = `Your bus pickup booking has been cancelled: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr} for ${partySize} person(s).`;
+    const adminMsg = `Booking cancelled: ${selected.booking.name} (${selected.booking.phone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}, party size ${partySize}.`;
 
     await sendSms(selected.booking.phone, userMsg);
     await sendSms(currentChurch?.sms_contact_phone, adminMsg);
@@ -363,8 +394,9 @@ export function FindBookingForm() {
     setCancelLoading(false);
   };
 
-  // Compute time slots for editing
+  // ---- Compute available slots for editing, respecting per-slot capacity ----
   let availableSlots: string[] = [];
+  let slotRemaining: Record<string, number> = {};
   let originalTimeShort = '';
 
   if (selected) {
@@ -376,19 +408,37 @@ export function FindBookingForm() {
     );
 
     originalTimeShort = formatTime(selected.booking.pickup_time);
+    const partySize = editPartySize || 1;
+    const perSlotCapacity = ev.capacity;
 
-    const bookedTimes = new Set(
-      eventBookings
-        .filter((b) => b.id !== selected.booking.id)
-        .map((b) => formatTime(b.pickup_time))
-    );
+    // Build a map: timeShort -> total people in that slot (excluding this booking)
+    const peopleByTime: Record<string, number> = {};
+    eventBookings.forEach((b) => {
+      if (b.id === selected.booking.id) return;
+      const short = formatTime(b.pickup_time);
+      const p = b.party_size ?? 1;
+      peopleByTime[short] = (peopleByTime[short] || 0) + p;
+    });
 
-    availableSlots = allSlots
-      .map((slot) => formatTime(slot))
-      .filter((short) => {
-        if (short === originalTimeShort) return true; // keep their current time even if "taken"
-        return !bookedTimes.has(short);
-      });
+    availableSlots = [];
+    slotRemaining = {};
+
+    allSlots.forEach((slot) => {
+      const short = formatTime(slot);
+      const used = peopleByTime[short] ?? 0;
+      const remaining = Math.max(0, perSlotCapacity - used);
+      slotRemaining[short] = remaining;
+
+      if (short === originalTimeShort) {
+        // always allow keeping the original slot
+        availableSlots.push(short);
+        return;
+      }
+
+      if (remaining >= partySize) {
+        availableSlots.push(short);
+      }
+    });
   }
 
   return (
@@ -398,7 +448,7 @@ export function FindBookingForm() {
         onSubmit={handleSearch}
         className="space-y-3 border-b border-slate-200 pb-4"
       >
-        {/* Organisation search (instead of dropdown) */}
+        {/* Organisation search */}
         <div className="space-y-1">
           <label className="block text-sm font-medium">
             Search organisation
@@ -414,34 +464,35 @@ export function FindBookingForm() {
             Type at least 2 letters (for example &ldquo;Fresh&rdquo;).
           </p>
 
-          {/* Matching orgs */}
           {loadingChurches && (
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 text-xs text-slate-500">
               Searching organisations…
             </p>
           )}
 
-          {!loadingChurches && orgQuery.trim().length >= 2 && churches.length === 0 && (
-            <p className="text-xs text-slate-500 mt-1">
-              No organisations found yet. Check the spelling or try another
-              name.
-            </p>
-          )}
+          {!loadingChurches &&
+            orgQuery.trim().length >= 2 &&
+            churches.length === 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                No organisations found yet. Check the spelling or try another
+                name.
+              </p>
+            )}
 
           {churches.length > 0 && (
             <ul className="mt-2 space-y-1 text-sm">
               {churches.map((c) => {
-                const selected = churchId === String(c.id);
+                const selectedOrg = churchId === String(c.id);
                 return (
                   <li key={c.id}>
                     <button
                       type="button"
                       onClick={() => {
                         setChurchId(String(c.id));
-                        setOrgQuery(c.name); // populate box with chosen org
+                        setOrgQuery(c.name);
                       }}
                       className={`flex w-full items-center justify-between rounded border px-3 py-1.5 text-left ${
-                        selected
+                        selectedOrg
                           ? 'border-sky-500 bg-sky-50'
                           : 'border-slate-200 bg-slate-50 hover:border-sky-400'
                       }`}
@@ -461,9 +512,7 @@ export function FindBookingForm() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-sm font-medium">
-            Service date
-          </label>
+          <label className="block text-sm font-medium">Service date</label>
           <input
             type="date"
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -522,7 +571,8 @@ export function FindBookingForm() {
                       month: 'short',
                       year: 'numeric',
                     })}{' '}
-                    · {formatTime(r.booking.pickup_time)} · {r.booking.address}
+                    · {formatTime(r.booking.pickup_time)} ·{' '}
+                    {r.booking.address}
                   </div>
                 </button>
               );
@@ -537,10 +587,8 @@ export function FindBookingForm() {
           onSubmit={handleUpdate}
           className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3"
         >
-          <h2 className="text-sm font-semibold mb-1">
-            Edit your booking
-          </h2>
-          <p className="text-xs text-slate-600 mb-2">
+          <h2 className="mb-1 text-sm font-semibold">Edit your booking</h2>
+          <p className="mb-2 text-xs text-slate-600">
             {selected.event.title} ·{' '}
             {new Date(selected.event.pickup_date).toLocaleDateString(
               undefined,
@@ -587,17 +635,40 @@ export function FindBookingForm() {
 
           <div className="space-y-1">
             <label className="block text-xs font-medium">
+              Group size (people on this booking)
+            </label>
+            <input
+              type="number"
+              min={1}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={editPartySize}
+              onChange={(e) =>
+                setEditPartySize(
+                  Math.max(1, Number(e.target.value) || 1)
+                )
+              }
+            />
+            <p className="text-[11px] text-slate-500">
+              This is how many people will be picked up with this booking.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-medium">
               Pickup time
             </label>
 
             {availableSlots.length === 0 ? (
               <p className="text-xs text-red-600">
-                No time slots are currently available for this event.
+                No time slots are currently available for this event that can
+                fit your group.
               </p>
             ) : (
               <div className="mt-1 flex flex-wrap gap-2">
                 {availableSlots.map((slotShort) => {
                   const selectedSlot = slotShort === editPickupTime;
+                  const remaining =
+                    slotRemaining[slotShort] ?? selected?.event.capacity ?? 0;
                   return (
                     <button
                       key={slotShort}
@@ -610,7 +681,7 @@ export function FindBookingForm() {
                           : 'bg-white text-slate-700 border-slate-300 hover:border-sky-500',
                       ].join(' ')}
                     >
-                      {slotShort}
+                      {slotShort} ({remaining} left)
                     </button>
                   );
                 })}
@@ -625,7 +696,7 @@ export function FindBookingForm() {
             <p className="text-xs text-green-700">{saveSuccess}</p>
           )}
 
-          <div className="mt-2 flex items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
               type="submit"
               disabled={saving || availableSlots.length === 0}
@@ -636,11 +707,19 @@ export function FindBookingForm() {
 
             <button
               type="button"
+              onClick={handleExitEdit}
+              className="inline-flex items-center rounded bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-300"
+            >
+              Close (keep booking)
+            </button>
+
+            <button
+              type="button"
               disabled={cancelLoading}
               onClick={handleCancelBooking}
               className="inline-flex items-center rounded bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
             >
-              {cancelLoading ? 'Cancelling…' : 'Cancel booking'}
+              {cancelLoading ? 'Cancelling…' : 'Cancel this booking'}
             </button>
           </div>
         </form>

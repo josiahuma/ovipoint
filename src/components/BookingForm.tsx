@@ -1,16 +1,20 @@
-// src/components/BookingForm.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { supabase } from '@/src/lib/supabaseClient';
+
+type ExistingBooking = {
+  pickup_time: string; // "HH:MM:SS"
+  party_size?: number | null;
+};
 
 type BookingFormProps = {
   eventId: number;
-  capacity: number;
+  capacity: number; // per time slot
   pickupStartTime: string;  // "HH:MM:SS"
   pickupEndTime: string;    // "HH:MM:SS"
   intervalMinutes: number;
-  existingBookings: { pickup_time: string }[];
+  existingBookings: ExistingBooking[];
   adminPhone?: string | null;
   eventTitle: string;
   eventDate: string;   // "YYYY-MM-DD"
@@ -72,118 +76,215 @@ export function BookingForm({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [pickupTime, setPickupTime] = useState('');
+  const [groupSize, setGroupSize] = useState<number>(1);
+  const [pickupTime, setPickupTime] = useState(''); // "HH:MM"
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [bookings, setBookings] = useState(existingBookings);
+  const [bookings, setBookings] = useState<ExistingBooking[]>(existingBookings);
 
-  const capacityLeft = Math.max(0, capacity - bookings.length);
-
-  const allSlots = generateSlots(
-    pickupStartTime,
-    pickupEndTime,
-    intervalMinutes
+  // ---- Derived slot + capacity info ----
+  const allSlots = useMemo(
+    () => generateSlots(pickupStartTime, pickupEndTime, intervalMinutes),
+    [pickupStartTime, pickupEndTime, intervalMinutes]
   );
 
-  const bookedTimes = new Set(
-    bookings.map((b) => formatTime(b.pickup_time))
-  );
+  const { slotUsage, slotRemaining, totalUsed, totalCapacity } = useMemo(() => {
+    const usage: Record<string, number> = {};
 
-  const availableSlots = allSlots.filter((slot) => {
-    const short = formatTime(slot);
-    return !bookedTimes.has(short);
-  });
+    bookings.forEach((b) => {
+      const short = formatTime(b.pickup_time);
+      const p = b.party_size ?? 1;
+      usage[short] = (usage[short] || 0) + p;
+    });
+
+    const remaining: Record<string, number> = {};
+    allSlots.forEach((slot) => {
+      const short = formatTime(slot);
+      const used = usage[short] || 0;
+      remaining[short] = Math.max(0, capacity - used);
+    });
+
+    const totalCap = capacity * allSlots.length;
+    const totalUsedSeats = Object.values(usage).reduce(
+      (sum, n) => sum + n,
+      0
+    );
+
+    return {
+      slotUsage: usage,
+      slotRemaining: remaining,
+      totalUsed: totalUsedSeats,
+      totalCapacity: totalCap,
+    };
+  }, [bookings, allSlots, capacity]);
+
+  const anySeatsLeft = totalUsed < totalCapacity;
+
+  const availableSlots = allSlots
+    .map((slot) => formatTime(slot))
+    .filter((short) => slotRemaining[short] > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    if (!name || !phone || !address || !pickupTime) {
-      setError('Please fill in all fields.');
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedAddress = address.trim();
+    const chosenTimeShort = pickupTime;
+
+    if (!trimmedName || !trimmedPhone || !trimmedAddress || !chosenTimeShort) {
+      setError('Please fill in all fields and choose a pickup time.');
       return;
     }
-    if (capacityLeft <= 0) {
-      setError('This event is fully booked.');
+
+    const size = groupSize || 1;
+    if (size < 1) {
+      setError('Group size must be at least 1.');
+      return;
+    }
+
+    // Simple front-end capacity check for chosen slot
+    const frontRemaining = slotRemaining[chosenTimeShort] ?? 0;
+    if (frontRemaining < size) {
+      setError(
+        'It looks like that time slot cannot fit your group size anymore. Please choose another time.'
+      );
       return;
     }
 
     setSaving(true);
 
-    const fullTime = pickupTime.length === 5 ? `${pickupTime}:00` : pickupTime;
-
-    const { error: insertError } = await supabase.from('bookings').insert({
-      pickup_event_id: eventId,
-      name,
-      phone,
-      address,
-      pickup_time: fullTime,
-    });
-
-    if (insertError) {
-      console.error(insertError);
-      if (insertError.message.includes('unique')) {
-        setError('That time has just been taken. Please choose another slot.');
-      } else {
-        setError('Failed to save booking. Please try again.');
-      }
-      setSaving(false);
-      return;
-    }
-
-    // SMS notifications
     try {
-      const eventDateObj = new Date(eventDate);
-      const dateStr = eventDateObj.toLocaleDateString(undefined, {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
+      // 1) Check if this phone already has a booking for this event
+      const { data: existingForPhone, error: existErr } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('pickup_event_id', eventId)
+        .eq('phone', trimmedPhone);
+
+      if (existErr) {
+        console.error('existingForPhone error', existErr);
+      }
+
+      if (existingForPhone && existingForPhone.length > 0) {
+        setError(
+          'It looks like you already have a booking for this event with this phone number. Use "Find my booking" on the homepage to change it instead of creating another one.'
+        );
+        setSaving(false);
+        return;
+      }
+
+      const fullTime =
+        chosenTimeShort.length === 5
+          ? `${chosenTimeShort}:00`
+          : chosenTimeShort;
+
+      // 2) Re-check capacity for that exact slot from DB (race-condition safety)
+      const { data: latestSlotBookings, error: latestErr } = await supabase
+        .from('bookings')
+        .select('pickup_time, party_size')
+        .eq('pickup_event_id', eventId)
+        .eq('pickup_time', fullTime);
+
+      if (latestErr) {
+        console.error('latestSlotBookings error', latestErr);
+      }
+
+      if (latestSlotBookings) {
+        const used = latestSlotBookings.reduce((sum, b) => {
+          const p = (b as any).party_size ?? 1;
+          return sum + p;
+        }, 0);
+        const remaining = capacity - used;
+
+        if (remaining < size) {
+          setError(
+            'It looks like you already have a booking at that time, or that time has just filled up. Please choose another slot.'
+          );
+          setSaving(false);
+          return;
+        }
+      }
+
+      // 3) Insert booking
+      const { error: insertError } = await supabase.from('bookings').insert({
+        pickup_event_id: eventId,
+        name: trimmedName,
+        phone: trimmedPhone,
+        address: trimmedAddress,
+        pickup_time: fullTime,
+        party_size: size,
       });
 
-      const userMsg = `Your church bus pickup is booked: ${churchName} – ${eventTitle} on ${dateStr} at ${pickupTime}.`;
-      const adminMsg = `New bus pickup booking for ${churchName}: ${name} (${phone}) on ${dateStr} at ${pickupTime}, address: ${address}.`;
+      if (insertError) {
+        // In your console you were seeing `{}` – log the whole thing for debugging
+        console.error('insertError', insertError);
+        setError(
+          'Something went wrong while saving your booking. Please try again in a moment.'
+        );
+        setSaving(false);
+        return;
+      }
 
-      await sendSms(phone, userMsg);
-      await sendSms(adminPhone, adminMsg);
-    } catch (smsErr) {
-      console.error('Error while sending SMS notifications', smsErr);
-      // We don't block the booking because SMS failed.
+      // 4) SMS notifications (best-effort)
+      try {
+        const eventDateObj = new Date(eventDate);
+        const dateStr = eventDateObj.toLocaleDateString(undefined, {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        });
+
+        const userMsg = `Your church bus pickup is booked: ${churchName} – ${eventTitle} on ${dateStr} at ${chosenTimeShort} for ${size} person(s).`;
+        const adminMsg = `New bus pickup booking for ${churchName}: ${trimmedName} (${trimmedPhone}) on ${dateStr} at ${chosenTimeShort}, party size ${size}, address: ${trimmedAddress}.`;
+
+        await sendSms(trimmedPhone, userMsg);
+        await sendSms(adminPhone, adminMsg);
+      } catch (smsErr) {
+        console.error('Error while sending SMS notifications', smsErr);
+        // Don’t block the booking because SMS failed.
+      }
+
+      setSuccess('Your pickup has been booked.');
+      setName('');
+      setPhone('');
+      setAddress('');
+      setGroupSize(1);
+      setPickupTime('');
+
+      // Refresh local bookings so the slot counts update
+      const { data: newBookings, error: loadErr } = await supabase
+        .from('bookings')
+        .select('pickup_time, party_size')
+        .eq('pickup_event_id', eventId);
+
+      if (!loadErr && newBookings) {
+        setBookings(newBookings as ExistingBooking[]);
+      }
+    } finally {
+      setSaving(false);
     }
-
-    setSuccess('Your pickup has been booked.');
-    setName('');
-    setPhone('');
-    setAddress('');
-    setPickupTime('');
-
-    const { data: newBookings, error: loadErr } = await supabase
-      .from('bookings')
-      .select('pickup_time')
-      .eq('pickup_event_id', eventId);
-
-    if (!loadErr && newBookings) {
-      setBookings(newBookings);
-    }
-
-    setSaving(false);
   };
 
-  if (capacityLeft <= 0) {
+  if (!anySeatsLeft) {
     return (
-      <p className="text-red-600 mt-4">
-        This event is fully booked. Please choose another date.
+      <p className="mt-4 text-red-600">
+        This event is fully booked across all time slots. Please choose another
+        date.
       </p>
     );
   }
 
   return (
     <div className="mt-6">
-      <h2 className="text-lg font-semibold mb-3">Book your pickup</h2>
+      <h2 className="mb-3 text-lg font-semibold">Book your pickup</h2>
 
-      {error && <p className="text-red-600 mb-2">{error}</p>}
-      {success && <p className="text-green-700 mb-2">{success}</p>}
+      {error && <p className="mb-2 text-red-600">{error}</p>}
+      {success && <p className="mb-2 text-green-700">{success}</p>}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <input
@@ -208,28 +309,54 @@ export function BookingForm({
         />
 
         <div>
-          <p className="text-sm mb-1">Pickup time:</p>
+          <label className="mb-1 block text-sm font-medium">
+            How many people (INCLUDING YOURSELF)?
+          </label>
+          <input
+            type="number"
+            min={1}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            value={groupSize}
+            onChange={(e) => setGroupSize(Math.max(1, Number(e.target.value) || 1))}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Seats are reserved per person. If you’re booking for a group,
+            include everyone travelling.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-sm">Pickup time:</p>
           {availableSlots.length === 0 ? (
-            <p className="text-red-600 text-sm">
-              No time slots left. Try another date.
+            <p className="text-sm text-red-600">
+              No time slots left that can fit your group. Try another date or
+              reduce the group size.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {availableSlots.map((slot) => {
+              {allSlots.map((slot) => {
                 const short = formatTime(slot);
+                const remaining = slotRemaining[short] ?? 0;
+                const isFull = remaining <= 0;
                 const selected = short === pickupTime;
+
                 return (
                   <button
                     key={slot}
                     type="button"
+                    disabled={isFull}
                     onClick={() => setPickupTime(short)}
-                    className={`px-3 py-1 rounded-full text-sm border ${
-                      selected
+                    className={[
+                      'rounded-full border px-3 py-1 text-sm',
+                      isFull
+                        ? 'cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200 line-through'
+                        : selected
                         ? 'bg-sky-600 text-white border-sky-600'
-                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                    }`}
+                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
+                    ].join(' ')}
                   >
-                    {short}
+                    {short}{' '}
+                    {isFull ? '(full)' : `(${remaining} left)`}
                   </button>
                 );
               })}
@@ -246,7 +373,11 @@ export function BookingForm({
         </button>
 
         <p className="text-xs text-slate-500">
-          Capacity left: {capacityLeft} / {capacity}
+          Total seats left across all time slots:{' '}
+          <strong>
+            {totalCapacity - totalUsed} / {totalCapacity}
+          </strong>{' '}
+          ({capacity} seats per time slot)
         </p>
       </form>
     </div>

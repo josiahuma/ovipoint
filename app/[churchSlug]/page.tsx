@@ -38,15 +38,18 @@ export default async function ChurchEventsPage({ params }: PageProps) {
   if (events && events.length > 0) {
     const eventIds = events.map((e: any) => e.id);
 
-    const { data: bookings } = await supabase
-      .from('bookings')
-      .select('pickup_event_id')
-      .in('pickup_event_id', eventIds);
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('pickup_event_id, party_size')
+    .in('pickup_event_id', eventIds);
 
-    (bookings || []).forEach((b: any) => {
-      const key = b.pickup_event_id;
-      bookingsByEvent[key] = (bookingsByEvent[key] || 0) + 1;
-    });
+
+  (bookings || []).forEach((b: any) => {
+    const key = b.pickup_event_id;
+    const size = b.party_size ?? 1;
+    bookingsByEvent[key] = (bookingsByEvent[key] || 0) + size;
+  });
+
   }
 
   return (
@@ -75,8 +78,28 @@ export default async function ChurchEventsPage({ params }: PageProps) {
           <ul className="space-y-3">
             {events.map((event: any) => {
               const date = new Date(event.pickup_date);
-              const bookedCount = bookingsByEvent[event.id] || 0;
-              const capacityLeft = Math.max(0, event.capacity - bookedCount);
+              const usedSeats = bookingsByEvent[event.id] || 0;
+
+              // how many slots does this event have?
+              const [startH, startM] = event.pickup_start_time
+                .slice(0, 5)
+                .split(':')
+                .map(Number);
+              const [endH, endM] = event.pickup_end_time
+                .slice(0, 5)
+                .split(':')
+                .map(Number);
+
+              const startTotal = startH * 60 + startM;
+              const endTotal = endH * 60 + endM;
+              const slotCount =
+                Math.floor(
+                  (endTotal - startTotal) / event.interval_minutes
+                ) + 1;
+
+              const totalCapacity = event.capacity * slotCount;
+              const capacityLeft = Math.max(0, totalCapacity - usedSeats);
+
 
               // "Running low" threshold: 20% of capacity or 3 seats, whichever is higher
               const lowThreshold = Math.max(
@@ -107,11 +130,12 @@ export default async function ChurchEventsPage({ params }: PageProps) {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <span className="text-xs text-slate-600">
-                          Capacity left:{' '}
+                          Seats left:{' '}
                           <strong>
-                            {capacityLeft} / {event.capacity}
+                            {capacityLeft} / {totalCapacity}
                           </strong>
                         </span>
+
                         <div className="flex gap-2">
                           {isFull && (
                             <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 border border-red-200">

@@ -7,6 +7,31 @@ type PageProps = {
   params: Promise<{ churchSlug: string }>;
 };
 
+// helper: how many pickup slots does this event have?
+function countSlotsForEvent(ev: any): number {
+  const [sH, sM] = (ev.pickup_start_time || '00:00').split(':').map(Number);
+  const [eH, eM] = (ev.pickup_end_time || '00:00').split(':').map(Number);
+  const interval = Number(ev.interval_minutes) || 0;
+
+  const startTotal = sH * 60 + sM;
+  const endTotal = eH * 60 + eM;
+
+  if (!Number.isFinite(startTotal) || !Number.isFinite(endTotal)) return 0;
+  if (interval <= 0) return 0;
+  if (endTotal < startTotal) return 0;
+
+  // mirrors the slot generation in BookingForm: t += interval while t <= end
+  const diff = endTotal - startTotal;
+  return Math.floor(diff / interval) + 1;
+}
+
+// helper: total seats for an event across all its slots
+function computeEventTotalSeats(ev: any): number {
+  const slots = countSlotsForEvent(ev);
+  const perSlot = Number(ev.capacity) || 0;
+  return slots * perSlot;
+}
+
 export default async function ChurchDashboardPage({ params }: PageProps) {
   const { churchSlug } = await params;
 
@@ -36,29 +61,47 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
   );
   const pastEvents = allEvents.filter((e: any) => e.pickup_date < todayStr);
 
+  // total SEAT capacity for upcoming events
   const totalUpcomingCapacity = upcomingEvents.reduce(
-    (sum: number, ev: any) => sum + (ev.capacity || 0),
+    (sum: number, ev: any) => sum + computeEventTotalSeats(ev),
     0
   );
 
-  // 3. Load bookings for these events
+  // 3. Load bookings for these events (with party_size)
   const eventIds = allEvents.map((e: any) => e.id);
 
-  let allBookings: any[] = [];
+  type RawBooking = {
+    id: number;
+    pickup_event_id: number;
+    name: string;
+    phone: string;
+    address: string;
+    pickup_time: string;
+    party_size: number | null;
+  };
+
+  let allBookings: RawBooking[] = [];
+
   if (eventIds.length > 0) {
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
-      .select('id, pickup_event_id, name, phone, address, pickup_time')
+      .select(
+        'id, pickup_event_id, name, phone, address, pickup_time, party_size'
+      )
       .in('pickup_event_id', eventIds);
 
     if (!bookingsError && bookings) {
-      allBookings = bookings;
+      allBookings = bookings as RawBooking[];
     }
   }
 
-  const totalBookings = allBookings.length;
+  // Total *people* booked across all events
+  const totalSeatCountAll = allBookings.reduce(
+    (sum, b) => sum + (b.party_size ?? 1),
+    0
+  );
 
-  // bookings linked with event for display
+  // pair bookings with their events
   const bookingsWithEvent = allBookings
     .map((b) => {
       const ev = allEvents.find((e: any) => e.id === b.pickup_event_id);
@@ -66,14 +109,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
       return { booking: b, event: ev };
     })
     .filter(Boolean) as {
-    booking: {
-      id: number;
-      pickup_event_id: number;
-      name: string;
-      phone: string;
-      address: string;
-      pickup_time: string;
-    };
+    booking: RawBooking;
     event: any;
   }[];
 
@@ -85,12 +121,20 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
     (be) => be.event.pickup_date < todayStr
   );
 
-  const upcomingBookingsCount = upcomingBookings.length;
+  // Seats (people) in upcoming vs past bookings
+  const upcomingSeatsBooked = upcomingBookings.reduce(
+    (sum, be) => sum + (be.booking.party_size ?? 1),
+    0
+  );
+  const pastSeatsBooked = pastBookings.reduce(
+    (sum, be) => sum + (be.booking.party_size ?? 1),
+    0
+  );
 
-  // simple "occupancy" percentage for upcoming events
+  // simple "occupancy" percentage for upcoming events (seats)
   const occupancyPercent =
     totalUpcomingCapacity > 0
-      ? Math.round((upcomingBookingsCount / totalUpcomingCapacity) * 100)
+      ? Math.round((upcomingSeatsBooked / totalUpcomingCapacity) * 100)
       : 0;
 
   // last 5 bookings (sorted by event date desc then pickup_time desc)
@@ -170,13 +214,13 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="text-xs font-semibold text-slate-500">
-              Total bookings
+              Total passengers
             </p>
             <p className="mt-1 text-2xl font-bold text-slate-900">
-              {totalBookings}
+              {totalSeatCountAll}
             </p>
             <p className="mt-1 text-[11px] text-slate-500">
-              Across all events
+              People booked across all events
             </p>
           </div>
 
@@ -188,8 +232,8 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
               {occupancyPercent}%
             </p>
             <p className="mt-1 text-[11px] text-slate-500">
-              {upcomingBookingsCount} bookings /{' '}
-              {totalUpcomingCapacity || 0} seats
+              {upcomingSeatsBooked} passengers / {totalUpcomingCapacity || 0}{' '}
+              seats
             </p>
           </div>
         </section>
@@ -218,7 +262,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                 <>No upcoming events configured yet.</>
               ) : (
                 <>
-                  {upcomingBookingsCount} of {totalUpcomingCapacity} available
+                  {upcomingSeatsBooked} of {totalUpcomingCapacity} available
                   seats are booked.
                 </>
               )}
@@ -230,14 +274,14 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
               Booking breakdown
             </h2>
             <p className="text-xs text-slate-600 mb-3">
-              Split of bookings between upcoming and past events.
+              Split of passengers between upcoming and past events.
             </p>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-600">Upcoming bookings</span>
+                <span className="text-slate-600">Upcoming passengers</span>
                 <span className="font-semibold">
-                  {upcomingBookings.length}
+                  {upcomingSeatsBooked}
                 </span>
               </div>
               <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -245,12 +289,12 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                   className="h-full rounded-full bg-emerald-500"
                   style={{
                     width:
-                      totalBookings === 0
+                      totalSeatCountAll === 0
                         ? '0%'
                         : `${Math.min(
                             100,
                             Math.round(
-                              (upcomingBookings.length / totalBookings) * 100
+                              (upcomingSeatsBooked / totalSeatCountAll) * 100
                             )
                           )}%`,
                   }}
@@ -258,9 +302,9 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
               </div>
 
               <div className="flex items-center justify-between text-xs mt-3">
-                <span className="text-slate-600">Past bookings</span>
+                <span className="text-slate-600">Past passengers</span>
                 <span className="font-semibold">
-                  {pastBookings.length}
+                  {pastSeatsBooked}
                 </span>
               </div>
               <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -268,12 +312,12 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                   className="h-full rounded-full bg-slate-500"
                   style={{
                     width:
-                      totalBookings === 0
+                      totalSeatCountAll === 0
                         ? '0%'
                         : `${Math.min(
                             100,
                             Math.round(
-                              (pastBookings.length / totalBookings) * 100
+                              (pastSeatsBooked / totalSeatCountAll) * 100
                             )
                           )}%`,
                   }}
@@ -307,6 +351,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
               {latestBookings.map(({ booking, event }) => {
                 const date = new Date(event.pickup_date);
                 const timeShort = booking.pickup_time.slice(0, 5);
+                const size = booking.party_size ?? 1;
                 return (
                   <div
                     key={booking.id}
@@ -328,6 +373,9 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                         month: 'short',
                         year: 'numeric',
                       })}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      Party size: {size}
                     </div>
                     <div className="mt-0.5 text-[11px] text-slate-500">
                       {booking.address}

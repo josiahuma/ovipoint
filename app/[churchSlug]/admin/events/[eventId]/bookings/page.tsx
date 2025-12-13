@@ -1,4 +1,3 @@
-// app/[churchSlug]/admin/events/[eventId]/bookings/page.tsx
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/src/lib/supabaseClient';
@@ -20,11 +19,9 @@ export default async function EventBookingsPage({ params }: PageProps) {
     .eq('slug', churchSlug)
     .single();
 
-  if (churchError || !church) {
-    return notFound();
-  }
+  if (churchError || !church) return notFound();
 
-  // 2. Load event (ensure it belongs to this church)
+  // 2. Load event
   const { data: event, error: eventError } = await supabase
     .from('pickup_events')
     .select('*')
@@ -32,18 +29,21 @@ export default async function EventBookingsPage({ params }: PageProps) {
     .eq('church_id', church.id)
     .single();
 
-  if (eventError || !event) {
-    return notFound();
-  }
+  if (eventError || !event) return notFound();
 
-  // 3. Load bookings for this event
+  // 3. Load bookings
   const { data: bookings, error: bookingsError } = await supabase
     .from('bookings')
-    .select('id, name, phone, address, pickup_time')
+    .select('id, name, phone, address, pickup_time, party_size')
     .eq('pickup_event_id', event.id)
     .order('pickup_time', { ascending: true });
 
   const bookingList = bookings || [];
+
+  const totalPeople = bookingList.reduce(
+    (sum, b) => sum + (b.party_size ?? 1),
+    0
+  );
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -53,11 +53,8 @@ export default async function EventBookingsPage({ params }: PageProps) {
             <h1 className="text-2xl font-bold">
               Bookings – {event.title}
             </h1>
-            <p className="text-slate-600 text-sm">
-              {church.name}
-            </p>
+            <p className="text-slate-600 text-sm">{church.name}</p>
             <p className="text-slate-500 text-xs mt-1">
-              Pickup date:{' '}
               {new Date(event.pickup_date).toLocaleDateString(undefined, {
                 weekday: 'short',
                 day: 'numeric',
@@ -69,53 +66,43 @@ export default async function EventBookingsPage({ params }: PageProps) {
               {event.interval_minutes} mins
             </p>
           </div>
-          <nav className="flex gap-4 text-sm">
-            <Link
-              href={`/${church.slug}/admin`}
-              className="text-slate-700 hover:text-sky-700"
-            >
-              &larr; Back to admin
-            </Link>
-          </nav>
+
+          <Link
+            href={`/${church.slug}/admin/events`}
+            className="text-sm text-sky-600 hover:underline"
+          >
+            ← Back to events
+          </Link>
         </header>
 
         {bookingsError && (
           <p className="text-sm text-red-600">
-            Failed to load bookings for this event.
+            Failed to load bookings.
           </p>
         )}
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">
-              Pickup bookings
-            </h2>
+            <h2 className="text-lg font-semibold">Pickup bookings</h2>
             <span className="text-sm text-slate-600">
-              Total: {bookingList.length}
+              {bookingList.length} bookings · {totalPeople} people
             </span>
           </div>
 
           {bookingList.length === 0 ? (
             <p className="text-sm text-slate-500">
-              No bookings have been made for this event yet.
+              No bookings yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-left">
-                    <th className="border-b border-slate-200 px-3 py-2">
-                      Name
-                    </th>
-                    <th className="border-b border-slate-200 px-3 py-2">
-                      Phone
-                    </th>
-                    <th className="border-b border-slate-200 px-3 py-2">
-                      Pickup time
-                    </th>
-                    <th className="border-b border-slate-200 px-3 py-2">
-                      Address / Location
-                    </th>
+                    <th className="border-b px-3 py-2">Name</th>
+                    <th className="border-b px-3 py-2">Phone</th>
+                    <th className="border-b px-3 py-2">Pickup time</th>
+                    <th className="border-b px-3 py-2">People</th>
+                    <th className="border-b px-3 py-2">Address</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -130,10 +117,8 @@ export default async function EventBookingsPage({ params }: PageProps) {
                         key={b.id}
                         className="odd:bg-white even:bg-slate-50"
                       >
-                        <td className="border-b border-slate-200 px-3 py-2">
-                          {b.name}
-                        </td>
-                        <td className="border-b border-slate-200 px-3 py-2">
+                        <td className="border-b px-3 py-2">{b.name}</td>
+                        <td className="border-b px-3 py-2">
                           {phoneClean ? (
                             <a
                               href={`tel:${phoneClean}`}
@@ -145,10 +130,13 @@ export default async function EventBookingsPage({ params }: PageProps) {
                             '-'
                           )}
                         </td>
-                        <td className="border-b border-slate-200 px-3 py-2">
+                        <td className="border-b px-3 py-2">
                           {b.pickup_time.slice(0, 5)}
                         </td>
-                        <td className="border-b border-slate-200 px-3 py-2">
+                        <td className="border-b px-3 py-2 font-medium">
+                          {b.party_size ?? 1}
+                        </td>
+                        <td className="border-b px-3 py-2">
                           {b.address ? (
                             <a
                               href={mapsUrl}

@@ -9,7 +9,7 @@ type PickupEvent = {
   id: number;
   title: string;
   pickup_date: string; // "YYYY-MM-DD"
-  capacity: number;
+  capacity: number; // capacity PER TIME SLOT
   pickup_start_time: string; // "HH:MM:SS"
   pickup_end_time: string;   // "HH:MM:SS"
   interval_minutes: number;
@@ -40,12 +40,13 @@ export function AdminEventForm({
   const [title, setTitle] = useState('');
   const [dateIso, setDateIso] = useState(''); // "YYYY-MM-DD" for single-date mode
 
-  // for multi-date recurring mode
-  const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('single');
-  const [multiDateInput, setMultiDateInput] = useState(''); // current <input type="date"> value
-  const [multiDates, setMultiDates] = useState<string[]>([]); // list of selected dates (YYYY-MM-DD)
+  // multi-date recurring mode
+  const [recurrenceType, setRecurrenceType] =
+    useState<RecurrenceType>('single');
+  const [multiDateInput, setMultiDateInput] = useState('');
+  const [multiDates, setMultiDates] = useState<string[]>([]);
 
-  const [capacity, setCapacity] = useState<string>('20');
+  const [capacity, setCapacity] = useState<string>('20'); // per time slot
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('10:30');
   const [intervalMinutes, setIntervalMinutes] = useState<string>('15');
@@ -71,7 +72,7 @@ export function AdminEventForm({
     setSuccessMessage(null);
     setError(null);
 
-    // In edit mode we keep things simple: event is tied to a single date
+    // Edit mode keeps things simple: single date
     setRecurrenceType('single');
     setMultiDates([]);
     setMultiDateInput('');
@@ -115,11 +116,10 @@ export function AdminEventForm({
       return;
     }
 
-    // determine which dates to use
+    // Which dates?
     let datesToCreate: string[] = [];
 
     if (isEditMode && initialEvent) {
-      // editing a single existing event – keep its date (dateIso might be updated)
       if (!dateIso) {
         setError('Please choose a pickup date.');
         return;
@@ -133,7 +133,6 @@ export function AdminEventForm({
         }
         datesToCreate = [dateIso];
       } else {
-        // multiple dates
         if (multiDates.length === 0) {
           setError('Please add at least one pickup date.');
           return;
@@ -156,7 +155,7 @@ export function AdminEventForm({
     const intervalNum = Number(intervalMinutes);
 
     if (!Number.isFinite(capacityNum) || capacityNum <= 0) {
-      setError('Capacity must be a positive number.');
+      setError('Capacity per time slot must be a positive number.');
       return;
     }
 
@@ -170,7 +169,7 @@ export function AdminEventForm({
     const basePayload = {
       church_id: churchId,
       title,
-      capacity: capacityNum,
+      capacity: capacityNum, // per time slot
       pickup_start_time: `${startTime}:00`,
       pickup_end_time: `${endTime}:00`,
       interval_minutes: intervalNum,
@@ -178,7 +177,7 @@ export function AdminEventForm({
 
     try {
       if (isEditMode && initialEvent) {
-        // ----- UPDATE EXISTING EVENT (single date) -----
+        // UPDATE
         const payload = {
           ...basePayload,
           pickup_date: datesToCreate[0],
@@ -202,7 +201,7 @@ export function AdminEventForm({
           }
         }
       } else {
-        // ----- CREATE ONE OR MANY EVENTS -----
+        // CREATE one or many
         const payloads = datesToCreate.map((date) => ({
           ...basePayload,
           pickup_date: date,
@@ -239,9 +238,7 @@ export function AdminEventForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <div className="space-y-1">
-        <label className="block text-sm font-medium">
-          Event title
-        </label>
+        <label className="block text-sm font-medium">Event title</label>
         <input
           type="text"
           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -254,12 +251,9 @@ export function AdminEventForm({
       {/* Dates / recurrence */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="block text-sm font-medium">
-            Pickup dates
-          </label>
+          <label className="block text-sm font-medium">Pickup dates</label>
 
           {isEditMode ? (
-            // Edit mode: simple single date
             <input
               type="date"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -326,7 +320,8 @@ export function AdminEventForm({
                   )}
                   {multiDates.length === 0 && (
                     <p className="text-xs text-slate-500">
-                      Add each date this event should run on (e.g. all Sundays in a month).
+                      Add each date this event should run on (e.g. all Sundays in
+                      a month).
                     </p>
                   )}
                 </div>
@@ -337,7 +332,7 @@ export function AdminEventForm({
 
         <div className="space-y-1">
           <label className="block text-sm font-medium">
-            Capacity (number of bookings per date)
+            Capacity per time slot (number of seats)
           </label>
           <input
             type="number"
@@ -346,15 +341,17 @@ export function AdminEventForm({
             value={capacity}
             onChange={(e) => setCapacity(e.target.value)}
           />
+          <p className="text-[11px] text-slate-500">
+            This applies to each pickup time (e.g. 08:00, 08:15 etc.), not the
+            whole event.
+          </p>
         </div>
       </div>
 
       {/* Times */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="block text-sm font-medium">
-            Pickup start time
-          </label>
+          <label className="block text-sm font-medium">Pickup start time</label>
           <input
             type="time"
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -364,9 +361,7 @@ export function AdminEventForm({
         </div>
 
         <div className="space-y-1">
-          <label className="block text-sm font-medium">
-            Pickup end time
-          </label>
+          <label className="block text-sm font-medium">Pickup end time</label>
           <input
             type="time"
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -391,18 +386,14 @@ export function AdminEventForm({
       </div>
 
       {/* Messages */}
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
       {successMessage && (
         <p className="text-sm text-green-700">{successMessage}</p>
       )}
       {shareLink && (
         <p className="text-xs text-slate-600">
           Share this link with your members:{' '}
-          <code className="rounded bg-slate-100 px-2 py-1">
-            {shareLink}
-          </code>
+          <code className="rounded bg-slate-100 px-2 py-1">{shareLink}</code>
         </p>
       )}
 

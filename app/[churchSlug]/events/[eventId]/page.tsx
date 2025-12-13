@@ -34,8 +34,9 @@ export default async function EventPage({ params }: PageProps) {
 
   const { data: bookings, error: bookingsError } = await supabase
     .from('bookings')
-    .select('pickup_time')
+    .select('pickup_time, party_size')
     .eq('pickup_event_id', event.id);
+
 
   const date = new Date(event.pickup_date);
 
@@ -72,7 +73,7 @@ export default async function EventPage({ params }: PageProps) {
             {event.pickup_end_time.slice(0, 5)}
           </p>
           <p>Interval: {event.interval_minutes} minutes</p>
-          <p>Capacity: {event.capacity}</p>
+          <p>Capacity per time slot: {event.capacity}</p>
           {isPaused && !isPast && (
             <p className="text-xs text-amber-700">
               Bookings for this pickup date are currently paused by the church.
@@ -98,11 +99,11 @@ export default async function EventPage({ params }: PageProps) {
         ) : (
           <BookingForm
             eventId={event.id}
-            capacity={event.capacity}
+            capacity={event.capacity} // per slot
             pickupStartTime={event.pickup_start_time}
             pickupEndTime={event.pickup_end_time}
             intervalMinutes={event.interval_minutes}
-            existingBookings={bookings || []}
+            existingBookings={(bookings || []) as any}
             adminPhone={church.sms_contact_phone ?? ''}
             eventTitle={event.title}
             eventDate={event.pickup_date}

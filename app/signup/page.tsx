@@ -180,7 +180,7 @@ export default function SignupPage() {
             disabled={loading}
             className="mt-2 w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
-            {loading ? 'Creating account…' : 'Sign up with Supabase'}
+            {loading ? 'Creating account…' : 'Sign up for Ovipoint'}
           </button>
 
           <p className="text-[11px] text-slate-500">
