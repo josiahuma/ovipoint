@@ -59,15 +59,6 @@ export default async function ChurchEventsPage({ params }: PageProps) {
               Bus pickup dates for this church.
             </p>
           </div>
-          <nav className="flex gap-4 text-sm">
-            <span className="text-slate-900 font-medium">Pickup dates</span>
-            <Link
-              href={`/${church.slug}/admin`}
-              className="text-slate-700 hover:text-sky-700"
-            >
-              Admin
-            </Link>
-          </nav>
         </header>
 
         {eventsError && (

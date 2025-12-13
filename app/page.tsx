@@ -15,7 +15,7 @@ export default function LandingPage() {
             </span>
 
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-              Let Ovipoint organise your local sommunity pickups.
+              Let Ovipoint organise your local community pickups.
             </h1>
 
             <p className="text-sm text-slate-700 sm:text-base">
