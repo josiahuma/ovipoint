@@ -40,7 +40,7 @@ export async function generateMetadata(
             url: 'https://www.ovipoint.com/og/ovipoint-og.png',
             width: 1200,
             height: 630,
-            alt: `${church.name} bus pickup booking`,
+            alt: `${church.name} pickup booking service`,
           },
         ],
         type: 'website',

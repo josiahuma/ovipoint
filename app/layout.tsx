@@ -10,9 +10,9 @@ export const metadata: Metadata = {
     'Ovipoint is a pickup booking platform for churches, schools and community groups.',
 
   openGraph: {
-    title: 'Ovipoint – Bus Pickup Booking SaaS',
+    title: 'Ovipoint – Pickup Booking Service',
     description:
-      'Simple bus pickup booking for churches, schools and community groups.',
+      'Pickup booking service for churches, schools and community groups.',
     url: 'https://www.ovipoint.com',
     siteName: 'Ovipoint',
     images: [
