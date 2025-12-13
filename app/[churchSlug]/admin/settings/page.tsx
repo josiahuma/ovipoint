@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { supabase } from '@/src/lib/supabaseClient';
 import { AdminChurchSettingsForm } from '@/src/components/AdminChurchSettingsForm';
@@ -22,6 +23,14 @@ export default async function AdminSettingsPage({ params }: PageProps) {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-xl px-4 pt-6">
+        {/* Back breadcrumb */}
+        <Link
+          href={`/${church.slug}/admin`}
+          className="mb-3 inline-flex items-center text-sm text-slate-600 hover:text-sky-700"
+        >
+          ← Back to dashboard
+        </Link>
+
         <h1 className="text-2xl font-bold mb-1">
           Church settings
         </h1>

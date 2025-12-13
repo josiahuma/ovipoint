@@ -1,4 +1,3 @@
-// src/components/FindBookingForm.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -78,13 +77,16 @@ async function sendSms(to: string | undefined | null, message: string) {
 }
 
 export function FindBookingForm() {
-  // Step 1: search fields
+  // ---- Org search state ----
+  const [orgQuery, setOrgQuery] = useState('');
   const [churches, setChurches] = useState<Church[]>([]);
-  const [churchId, setChurchId] = useState<string>('');
+  const [churchId, setChurchId] = useState<string>(''); // selected org id
+  const [loadingChurches, setLoadingChurches] = useState(false);
+
+  // Step 1: remaining search fields
   const [dateIso, setDateIso] = useState('');
   const [phone, setPhone] = useState('');
 
-  const [loadingChurches, setLoadingChurches] = useState(true);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
@@ -103,31 +105,45 @@ export function FindBookingForm() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
 
-  // Load churches for dropdown
+  // --- Live organisation search (like Book a ride) ---
   useEffect(() => {
-    const loadChurches = async () => {
+    const q = orgQuery.trim();
+
+    if (q.length < 2) {
+      setChurches([]);
+      // only clear selected church if user is actually editing query
+      // (we keep churchId as-is so they can still search bookings)
+      return;
+    }
+
+    const handle = setTimeout(async () => {
       setLoadingChurches(true);
+
       const { data, error } = await supabase
         .from('churches')
         .select('id, name, slug, sms_contact_phone')
-        .order('name', { ascending: true });
+        .ilike('name', `%${q}%`)
+        .order('name', { ascending: true })
+        .limit(10);
 
       if (error) {
         console.error(error);
         setChurches([]);
       } else {
-        setChurches(data || []);
+        setChurches((data || []) as Church[]);
       }
-      setLoadingChurches(false);
-    };
 
-    loadChurches();
-  }, []);
+      setLoadingChurches(false);
+    }, 300); // simple debounce
+
+    return () => clearTimeout(handle);
+  }, [orgQuery]);
 
   const currentChurch = churchId
     ? churches.find((c) => c.id === Number(churchId))
     : undefined;
 
+  // ---- Find booking ----
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError(null);
@@ -137,7 +153,9 @@ export function FindBookingForm() {
     setSelected(null);
 
     if (!churchId || !dateIso || !phone) {
-      setSearchError('Please select church, date, and enter your phone number.');
+      setSearchError(
+        'Please select your organisation, choose a date, and enter the phone number you used when booking.'
+      );
       return;
     }
 
@@ -145,7 +163,7 @@ export function FindBookingForm() {
 
     const churchIdNum = Number(churchId);
 
-    // 1. Load events for that church & date
+    // 1. Load events for that org & date
     const { data: events, error: eventsError } = await supabase
       .from('pickup_events')
       .select('*')
@@ -160,7 +178,7 @@ export function FindBookingForm() {
     }
 
     if (!events || events.length === 0) {
-      setSearchError('No pickup events found for that church and date.');
+      setSearchError('No pickup events found for that organisation and date.');
       setSearching(false);
       return;
     }
@@ -182,7 +200,9 @@ export function FindBookingForm() {
     }
 
     if (!bookings || bookings.length === 0) {
-      setSearchError('No bookings found matching that phone and date.');
+      setSearchError(
+        'No bookings found matching that phone number on this date.'
+      );
       setSearching(false);
       return;
     }
@@ -278,7 +298,7 @@ export function FindBookingForm() {
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }
     );
 
-    const userMsg = `Your church bus pickup booking has been updated: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
+    const userMsg = `Your bus pickup booking has been updated: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
     const adminMsg = `Booking updated: ${editName} (${editPhone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
 
     await sendSms(editPhone, userMsg);
@@ -329,7 +349,7 @@ export function FindBookingForm() {
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }
     );
 
-    const userMsg = `Your church bus pickup booking has been cancelled: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
+    const userMsg = `Your bus pickup booking has been cancelled: ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
     const adminMsg = `Booking cancelled: ${selected.booking.name} (${selected.booking.phone}) for ${selected.event.title} on ${eventDateStr} at ${eventTimeStr}.`;
 
     await sendSms(selected.booking.phone, userMsg);
@@ -374,26 +394,69 @@ export function FindBookingForm() {
   return (
     <div className="space-y-6">
       {/* Search form */}
-      <form onSubmit={handleSearch} className="space-y-3 border-b border-slate-200 pb-4">
+      <form
+        onSubmit={handleSearch}
+        className="space-y-3 border-b border-slate-200 pb-4"
+      >
+        {/* Organisation search (instead of dropdown) */}
         <div className="space-y-1">
           <label className="block text-sm font-medium">
-            Church
+            Search organisation
           </label>
-          {loadingChurches ? (
-            <p className="text-xs text-slate-500">Loading churches...</p>
-          ) : (
-            <select
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm bg-white"
-              value={churchId}
-              onChange={(e) => setChurchId(e.target.value)}
-            >
-              <option value="">Select church…</option>
-              {churches.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+          <input
+            type="text"
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Start typing your church or organisation name…"
+            value={orgQuery}
+            onChange={(e) => setOrgQuery(e.target.value)}
+          />
+          <p className="text-[11px] text-slate-500">
+            Type at least 2 letters (for example &ldquo;Fresh&rdquo;).
+          </p>
+
+          {/* Matching orgs */}
+          {loadingChurches && (
+            <p className="text-xs text-slate-500 mt-1">
+              Searching organisations…
+            </p>
+          )}
+
+          {!loadingChurches && orgQuery.trim().length >= 2 && churches.length === 0 && (
+            <p className="text-xs text-slate-500 mt-1">
+              No organisations found yet. Check the spelling or try another
+              name.
+            </p>
+          )}
+
+          {churches.length > 0 && (
+            <ul className="mt-2 space-y-1 text-sm">
+              {churches.map((c) => {
+                const selected = churchId === String(c.id);
+                return (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChurchId(String(c.id));
+                        setOrgQuery(c.name); // populate box with chosen org
+                      }}
+                      className={`flex w-full items-center justify-between rounded border px-3 py-1.5 text-left ${
+                        selected
+                          ? 'border-sky-500 bg-sky-50'
+                          : 'border-slate-200 bg-slate-50 hover:border-sky-400'
+                      }`}
+                    >
+                      <span className="font-medium text-slate-800">
+                        {c.name}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {c.slug}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
 
@@ -451,9 +514,7 @@ export function FindBookingForm() {
                   onClick={() => handleSelectBooking(r)}
                   className="w-full text-left rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm hover:border-sky-500"
                 >
-                  <div className="font-medium">
-                    {r.event.title}
-                  </div>
+                  <div className="font-medium">{r.event.title}</div>
                   <div className="text-xs text-slate-600">
                     {d.toLocaleDateString(undefined, {
                       weekday: 'short',
@@ -493,9 +554,7 @@ export function FindBookingForm() {
           </p>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">
-              Name
-            </label>
+            <label className="block text-xs font-medium">Name</label>
             <input
               type="text"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -505,9 +564,7 @@ export function FindBookingForm() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">
-              Phone
-            </label>
+            <label className="block text-xs font-medium">Phone</label>
             <input
               type="tel"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -538,7 +595,7 @@ export function FindBookingForm() {
                 No time slots are currently available for this event.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2 mt-1">
+              <div className="mt-1 flex flex-wrap gap-2">
                 {availableSlots.map((slotShort) => {
                   const selectedSlot = slotShort === editPickupTime;
                   return (
@@ -568,7 +625,7 @@ export function FindBookingForm() {
             <p className="text-xs text-green-700">{saveSuccess}</p>
           )}
 
-          <div className="flex items-center gap-3 mt-2">
+          <div className="mt-2 flex items-center gap-3">
             <button
               type="submit"
               disabled={saving || availableSlots.length === 0}
