@@ -1,9 +1,7 @@
-// src/components/OrgSearchBooking.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/src/lib/supabaseClient';
 
 type Church = {
   id: number;
@@ -12,11 +10,11 @@ type Church = {
 };
 
 type PickupEvent = {
-  id: number;
+  id: string;
   title: string;
-  pickup_date: string;       // YYYY-MM-DD
-  pickup_start_time: string; // HH:MM:SS
-  pickup_end_time: string;   // HH:MM:SS
+  pickup_date: string;
+  pickup_start_time: string;
+  pickup_end_time: string;
   capacity: number;
 };
 
@@ -29,7 +27,7 @@ export function OrgSearchBooking() {
   const [events, setEvents] = useState<PickupEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
-  // Search churches when user types (simple debounce)
+  // Search churches (debounced)
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setChurches([]);
@@ -40,17 +38,21 @@ export function OrgSearchBooking() {
 
     const handle = setTimeout(async () => {
       setLoadingChurches(true);
-      const { data, error } = await supabase
-        .from('churches')
-        .select('id, name, slug')
-        .ilike('name', `%${query.trim()}%`)
-        .order('name', { ascending: true })
-        .limit(10);
 
-      if (!error && data) {
-        setChurches(data as Church[]);
+      try {
+        const res = await fetch(
+          `/api/churches/search?q=${encodeURIComponent(query.trim())}`
+        );
+        const json = await res.json();
+
+        if (res.ok) {
+          setChurches(json.churches || []);
+        } else {
+          setChurches([]);
+        }
+      } finally {
+        setLoadingChurches(false);
       }
-      setLoadingChurches(false);
     }, 300);
 
     return () => clearTimeout(handle);
@@ -61,24 +63,23 @@ export function OrgSearchBooking() {
     setLoadingEvents(true);
     setEvents([]);
 
-    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const res = await fetch(
+        `/api/events/by-church?churchId=${church.id}`
+      );
+      const json = await res.json();
 
-    const { data, error } = await supabase
-      .from('pickup_events')
-      .select('id, title, pickup_date, pickup_start_time, pickup_end_time, capacity')
-      .eq('church_id', church.id)
-      .gte('pickup_date', today)
-      .order('pickup_date', { ascending: true });
-
-    if (!error && data) {
-      setEvents(data as PickupEvent[]);
+      if (res.ok) {
+        setEvents(json.events || []);
+      }
+    } finally {
+      setLoadingEvents(false);
     }
-    setLoadingEvents(false);
   };
 
   return (
     <div className="space-y-4">
-      {/* Search box */}
+      {/* Search */}
       <div className="space-y-1">
         <label className="block text-xs font-medium text-slate-700">
           Search for your church or organisation
@@ -91,11 +92,11 @@ export function OrgSearchBooking() {
           onChange={(e) => setQuery(e.target.value)}
         />
         <p className="text-[11px] text-slate-500">
-          Type at least 2 letters (e.g. &ldquo;my org&rdquo;).
+          Type at least 2 letters.
         </p>
       </div>
 
-      {/* Matching churches */}
+      {/* Churches */}
       <div className="space-y-2">
         {loadingChurches && (
           <p className="text-sm text-slate-500">Searching organisations…</p>
@@ -103,7 +104,7 @@ export function OrgSearchBooking() {
 
         {!loadingChurches && query && churches.length === 0 && (
           <p className="text-sm text-slate-500">
-            No organisations found yet. Check the spelling or try another name.
+            No organisations found.
           </p>
         )}
 
@@ -120,9 +121,7 @@ export function OrgSearchBooking() {
                       : 'border-slate-200 bg-slate-50 hover:border-sky-400'
                   }`}
                 >
-                  <span className="font-medium text-slate-800">
-                    {church.name}
-                  </span>
+                  <span className="font-medium">{church.name}</span>
                   <span className="text-[11px] text-slate-500">
                     ovipoint.com/{church.slug}
                   </span>
@@ -133,21 +132,22 @@ export function OrgSearchBooking() {
         )}
       </div>
 
-      {/* Events for selected church */}
+      {/* Events */}
       {selectedChurch && (
         <div className="mt-4 border-t border-slate-200 pt-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-2">
+          <h3 className="text-sm font-semibold mb-2">
             Upcoming pickups for {selectedChurch.name}
           </h3>
 
           {loadingEvents && (
-            <p className="text-sm text-slate-500">Loading upcoming events…</p>
+            <p className="text-sm text-slate-500">
+              Loading upcoming events…
+            </p>
           )}
 
           {!loadingEvents && events.length === 0 && (
             <p className="text-sm text-slate-500">
-              No upcoming pickup dates have been published yet. Please check
-              back later or contact the organisation.
+              No upcoming pickup dates yet.
             </p>
           )}
 
@@ -161,15 +161,13 @@ export function OrgSearchBooking() {
                       href={`/${selectedChurch.slug}/events/${event.id}`}
                       className="block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm hover:border-sky-500 hover:bg-white"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-slate-800">
-                          {event.title}
-                        </span>
+                      <div className="flex justify-between">
+                        <span className="font-medium">{event.title}</span>
                         <span className="text-[11px] text-slate-500">
                           Capacity: {event.capacity}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-600 mt-1">
+                      <div className="mt-1 text-xs text-slate-600">
                         {date.toLocaleDateString(undefined, {
                           weekday: 'short',
                           day: 'numeric',
@@ -180,7 +178,7 @@ export function OrgSearchBooking() {
                         {event.pickup_end_time.slice(0, 5)}
                       </div>
                       <p className="mt-1 text-[11px] text-sky-700">
-                        Tap to choose a pickup time and book your seat →
+                        Tap to choose a pickup time →
                       </p>
                     </Link>
                   </li>

@@ -1,12 +1,10 @@
-// src/components/ToggleBookingsButton.tsx
 'use client';
 
 import { useState, useTransition } from 'react';
-import { supabase } from '@/src/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
 type Props = {
-  eventId: number;
+  eventId: string; // ✅ string
   initialOpen: boolean;
 };
 
@@ -21,19 +19,26 @@ export function ToggleBookingsButton({ eventId, initialOpen }: Props) {
     const newValue = !bookingsOpen;
 
     startTransition(async () => {
-      const { error } = await supabase
-        .from('pickup_events')
-        .update({ bookings_open: newValue })
-        .eq('id', eventId);
+      try {
+        const res = await fetch('/api/admin/events/toggle-bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId, bookingsOpen: newValue }),
+        });
 
-      if (error) {
-        console.error(error);
-        alert('Failed to update booking status. Please try again.');
-        return;
+        const json: { ok?: boolean; error?: string } = await res.json();
+
+        if (!res.ok) {
+          alert(json?.error || 'Failed to update booking status.');
+          return;
+        }
+
+        setBookingsOpen(newValue);
+        router.refresh();
+      } catch (e) {
+        console.error(e);
+        alert('Unexpected error while updating booking status.');
       }
-
-      setBookingsOpen(newValue);
-      router.refresh();
     });
   };
 

@@ -1,55 +1,98 @@
 // app/[churchSlug]/page.tsx
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { supabase } from '@/src/lib/supabaseClient';
+import { prisma } from '@/src/lib/prisma';
 
 type PageProps = {
   params: Promise<{ churchSlug: string }>;
 };
 
+type ChurchRow = {
+  id: bigint;
+  name: string;
+  slug: string;
+};
+
+type PickupEventRow = {
+  id: bigint;
+  churchId: bigint;
+  title: string;
+  pickupDate: Date;
+  capacity: number;
+  pickupStartTime: Date;
+  pickupEndTime: Date;
+  intervalMinutes: number;
+};
+
+type BookingSeatRow = {
+  pickupEventId: bigint;
+  partySize: number | null;
+};
+
+function countSlotsForEvent(ev: {
+  pickupStartTime: Date;
+  pickupEndTime: Date;
+  intervalMinutes: number;
+}): number {
+  const start = ev.pickupStartTime.getTime();
+  const end = ev.pickupEndTime.getTime();
+  const interval = Number(ev.intervalMinutes) || 0;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  if (interval <= 0) return 0;
+  if (end < start) return 0;
+
+  const diffMinutes = Math.floor((end - start) / 60000);
+  return Math.floor(diffMinutes / interval) + 1; // includes start slot
+}
+
 export default async function ChurchEventsPage({ params }: PageProps) {
-  // ⬇️ Next 16: params is a Promise, so we await it
   const { churchSlug } = await params;
 
-  // 1. Load the church by slug
-  const { data: church, error: churchError } = await supabase
-    .from('churches')
-    .select('id, name, slug')
-    .eq('slug', churchSlug)
-    .single();
-
-  if (churchError || !church) {
-    return notFound();
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  // 2. Load upcoming pickup events
-  const { data: events, error: eventsError } = await supabase
-    .from('pickup_events')
-    .select('*')
-    .eq('church_id', church.id)
-    .gte('pickup_date', today)
-    .order('pickup_date', { ascending: true });
-
-  // 3. Load bookings for those events to compute capacity left
-  let bookingsByEvent: Record<number, number> = {};
-
-  if (events && events.length > 0) {
-    const eventIds = events.map((e: any) => e.id);
-
-  const { data: bookings } = await supabase
-    .from('bookings')
-    .select('pickup_event_id, party_size')
-    .in('pickup_event_id', eventIds);
-
-
-  (bookings || []).forEach((b: any) => {
-    const key = b.pickup_event_id;
-    const size = b.party_size ?? 1;
-    bookingsByEvent[key] = (bookingsByEvent[key] || 0) + size;
+  const church: ChurchRow | null = await prisma.church.findUnique({
+    where: { slug: churchSlug },
+    select: { id: true, name: true, slug: true },
   });
 
+  if (!church) return notFound();
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const events: PickupEventRow[] = await prisma.pickupEvent.findMany({
+    where: {
+      churchId: church.id,
+      pickupDate: { gte: today },
+    },
+    orderBy: { pickupDate: 'asc' },
+    select: {
+      id: true,
+      churchId: true,
+      title: true,
+      pickupDate: true,
+      capacity: true,
+      pickupStartTime: true,
+      pickupEndTime: true,
+      intervalMinutes: true,
+    },
+  });
+
+  // Sum bookings per event (people, not bookings)
+  const bookingsByEvent: Record<string, number> = {};
+
+  if (events.length > 0) {
+    const eventIds = events.map((e: PickupEventRow) => e.id);
+
+    const bookings: BookingSeatRow[] = await prisma.booking.findMany({
+      where: { pickupEventId: { in: eventIds } },
+      select: { pickupEventId: true, partySize: true },
+    });
+
+    bookings.forEach((b: BookingSeatRow) => {
+      const key = String(b.pickupEventId);
+      const size = b.partySize ?? 1;
+      bookingsByEvent[key] = (bookingsByEvent[key] || 0) + size;
+    });
   }
 
   return (
@@ -64,70 +107,51 @@ export default async function ChurchEventsPage({ params }: PageProps) {
           </div>
         </header>
 
-        {eventsError && (
-          <p className="text-red-600 text-sm">
-            Failed to load events for this church.
-          </p>
-        )}
-
-        {!events || events.length === 0 ? (
+        {events.length === 0 ? (
           <p className="text-slate-500 text-sm">
             No upcoming pickup dates have been created yet.
           </p>
         ) : (
           <ul className="space-y-3">
-            {events.map((event: any) => {
-              const date = new Date(event.pickup_date);
-              const usedSeats = bookingsByEvent[event.id] || 0;
+            {events.map((event: PickupEventRow) => {
+              const usedSeats = bookingsByEvent[String(event.id)] || 0;
 
-              // how many slots does this event have?
-              const [startH, startM] = event.pickup_start_time
-                .slice(0, 5)
-                .split(':')
-                .map(Number);
-              const [endH, endM] = event.pickup_end_time
-                .slice(0, 5)
-                .split(':')
-                .map(Number);
+              const slotCount = countSlotsForEvent({
+                pickupStartTime: event.pickupStartTime,
+                pickupEndTime: event.pickupEndTime,
+                intervalMinutes: event.intervalMinutes,
+              });
 
-              const startTotal = startH * 60 + startM;
-              const endTotal = endH * 60 + endM;
-              const slotCount =
-                Math.floor(
-                  (endTotal - startTotal) / event.interval_minutes
-                ) + 1;
-
-              const totalCapacity = event.capacity * slotCount;
+              const totalCapacity = (Number(event.capacity) || 0) * slotCount;
               const capacityLeft = Math.max(0, totalCapacity - usedSeats);
 
-
-              // "Running low" threshold: 20% of capacity or 3 seats, whichever is higher
-              const lowThreshold = Math.max(
-                3,
-                Math.round(event.capacity * 0.2)
-              );
-              const isLow =
-                capacityLeft > 0 && capacityLeft <= lowThreshold;
+              // low threshold: 20% of per-slot capacity OR 3 seats, whichever higher
+              const lowThreshold = Math.max(3, Math.round((Number(event.capacity) || 0) * 0.2));
+              const isLow = capacityLeft > 0 && capacityLeft <= lowThreshold;
               const isFull = capacityLeft <= 0;
 
+              const dateLabel = event.pickupDate.toLocaleDateString(undefined, {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              });
+
+              const startTime = event.pickupStartTime.toISOString().slice(11, 16);
+              const endTime = event.pickupEndTime.toISOString().slice(11, 16);
+
               return (
-                <li key={event.id}>
+                <li key={String(event.id)}>
                   <Link
-                    href={`/${church.slug}/events/${event.id}`}
+                    href={`/${church.slug}/events/${String(event.id)}`}
                     className="block rounded-lg border border-slate-200 bg-white px-4 py-3 hover:border-sky-500 hover:shadow-sm transition"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <div className="font-semibold">{event.title}</div>
-                        <div className="text-sm text-slate-600">
-                          {date.toLocaleDateString(undefined, {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </div>
+                        <div className="text-sm text-slate-600">{dateLabel}</div>
                       </div>
+
                       <div className="flex flex-col items-end gap-1">
                         <span className="text-xs text-slate-600">
                           Seats left:{' '}
@@ -152,9 +176,7 @@ export default async function ChurchEventsPage({ params }: PageProps) {
                     </div>
 
                     <div className="text-xs text-slate-500 mt-1">
-                      Pickup window: {event.pickup_start_time.slice(0, 5)} –{' '}
-                      {event.pickup_end_time.slice(0, 5)} · Interval:{' '}
-                      {event.interval_minutes} mins
+                      Pickup window: {startTime} – {endTime} · Interval: {event.intervalMinutes} mins
                     </div>
                   </Link>
                 </li>

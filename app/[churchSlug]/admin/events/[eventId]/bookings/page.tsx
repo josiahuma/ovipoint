@@ -1,6 +1,10 @@
-import { notFound } from 'next/navigation';
+// app/[churchSlug]/admin/events/[eventId]/bookings/page.tsx
+// @ts-nocheck
+
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/src/lib/supabaseClient';
+import { prisma } from '@/src/lib/prisma';
+import { getCurrentChurchSession } from '@/src/lib/auth';
 
 type PageProps = {
   params: Promise<{
@@ -9,61 +13,105 @@ type PageProps = {
   }>;
 };
 
+function timeToHHMM(value: unknown): string {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString().slice(11, 16); // HH:MM
+  if (typeof value === 'string') return value.slice(0, 5); // "HH:MM" or "HH:MM:SS"
+  return String(value).slice(0, 5);
+}
+
+
 export default async function EventBookingsPage({ params }: PageProps) {
   const { churchSlug, eventId } = await params;
 
-  // 1. Load church
-  const { data: church, error: churchError } = await supabase
-    .from('churches')
-    .select('id, name, slug')
-    .eq('slug', churchSlug)
-    .single();
+  if (!churchSlug || !eventId) return notFound();
 
-  if (churchError || !church) return notFound();
+  // 🔒 Guard (JWT)
+  const session = await getCurrentChurchSession();
 
-  // 2. Load event
-  const { data: event, error: eventError } = await supabase
-    .from('pickup_events')
-    .select('*')
-    .eq('id', Number(eventId))
-    .eq('church_id', church.id)
-    .single();
+  if (!session) {
+    redirect(`/login?slug=${churchSlug}`);
+  }
 
-  if (eventError || !event) return notFound();
+  if (session.slug !== churchSlug) {
+    redirect(`/${session.slug}/admin`);
+  }
 
-  // 3. Load bookings
-  const { data: bookings, error: bookingsError } = await supabase
-    .from('bookings')
-    .select('id, name, phone, address, pickup_time, party_size')
-    .eq('pickup_event_id', event.id)
-    .order('pickup_time', { ascending: true });
+  // 1) Load church
+  const church = await prisma.church.findUnique({
+    where: { slug: churchSlug },
+    select: { id: true, name: true, slug: true },
+  });
 
-  const bookingList = bookings || [];
+  if (!church) return notFound();
+
+  // eventId comes from URL -> convert safely
+  const eventIdBig = BigInt(eventId);
+
+  // 2) Load event (must belong to this church)
+  const event = await prisma.pickupEvent.findFirst({
+    where: {
+      id: eventIdBig,
+      churchId: church.id,
+    },
+  });
+
+  if (!event) return notFound();
+
+  // 3) Load bookings for this event
+  const bookingList = await prisma.booking.findMany({
+    where: { pickupEventId: event.id },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      address: true,
+      pickupTime: true,
+      partySize: true,
+    },
+    orderBy: { pickupTime: 'asc' },
+  });
 
   const totalPeople = bookingList.reduce(
-    (sum, b) => sum + (b.party_size ?? 1),
+    (sum, b) => sum + (b.partySize ?? 1),
     0
   );
+
+  const pickupDateLabel = event.pickupDate
+    ? event.pickupDate.toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : '';
+
+  const startTime = timeToHHMM(event.pickupStartTime);
+  const endTime = timeToHHMM(event.pickupEndTime);
+
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 pt-6 space-y-6">
         <header className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">
-              Bookings – {event.title}
-            </h1>
+            <h1 className="text-2xl font-bold">Bookings – {event.title}</h1>
             <p className="text-slate-600 text-sm">{church.name}</p>
+
             <p className="text-slate-500 text-xs mt-1">
-              {new Date(event.pickup_date).toLocaleDateString(undefined, {
-                weekday: 'short',
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-              })}{' '}
-              · {event.pickup_start_time.slice(0, 5)} –{' '}
-              {event.pickup_end_time.slice(0, 5)} · Interval:{' '}
-              {event.interval_minutes} mins
+              {pickupDateLabel}
+              {startTime && endTime ? (
+                <>
+                  {' '}
+                  · {startTime} – {endTime}
+                </>
+              ) : null}
+              {event.intervalMinutes ? (
+                <>
+                  {' '}
+                  · Interval: {event.intervalMinutes} mins
+                </>
+              ) : null}
             </p>
           </div>
 
@@ -75,12 +123,6 @@ export default async function EventBookingsPage({ params }: PageProps) {
           </Link>
         </header>
 
-        {bookingsError && (
-          <p className="text-sm text-red-600">
-            Failed to load bookings.
-          </p>
-        )}
-
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Pickup bookings</h2>
@@ -90,9 +132,7 @@ export default async function EventBookingsPage({ params }: PageProps) {
           </div>
 
           {bookingList.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No bookings yet.
-            </p>
+            <p className="text-sm text-slate-500">No bookings yet.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm border-collapse">
@@ -105,6 +145,7 @@ export default async function EventBookingsPage({ params }: PageProps) {
                     <th className="border-b px-3 py-2">Address</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {bookingList.map((b) => {
                     const phoneClean = b.phone?.replace(/\s+/g, '');
@@ -114,10 +155,11 @@ export default async function EventBookingsPage({ params }: PageProps) {
 
                     return (
                       <tr
-                        key={b.id}
+                        key={String(b.id)}
                         className="odd:bg-white even:bg-slate-50"
                       >
                         <td className="border-b px-3 py-2">{b.name}</td>
+
                         <td className="border-b px-3 py-2">
                           {phoneClean ? (
                             <a
@@ -130,12 +172,15 @@ export default async function EventBookingsPage({ params }: PageProps) {
                             '-'
                           )}
                         </td>
+
                         <td className="border-b px-3 py-2">
-                          {b.pickup_time.slice(0, 5)}
+                          {timeToHHMM(b.pickupTime)}
                         </td>
+
                         <td className="border-b px-3 py-2 font-medium">
-                          {b.party_size ?? 1}
+                          {b.partySize ?? 1}
                         </td>
+
                         <td className="border-b px-3 py-2">
                           {b.address ? (
                             <a

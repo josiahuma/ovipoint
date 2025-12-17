@@ -1,28 +1,26 @@
 // app/[churchSlug]/layout.tsx
 import type { Metadata } from 'next';
-import { supabase } from '@/src/lib/supabaseClient';
+import { prisma } from '@/src/lib/prisma';
 
 type LayoutProps = {
   children: React.ReactNode;
   params: Promise<{ churchSlug: string }>;
 };
 
-export async function generateMetadata(
-  { params }: { params: Promise<{ churchSlug: string }> }
-): Promise<Metadata> {
-  // ⬇️ params is a Promise in Next 16 with the App Router
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ churchSlug: string }>;
+}): Promise<Metadata> {
   const { churchSlug } = await params;
 
   try {
-    const { data: church } = await supabase
-      .from('churches')
-      .select('name, slug')
-      .eq('slug', churchSlug)
-      .single();
+    const church = await prisma.church.findUnique({
+      where: { slug: churchSlug },
+      select: { name: true, slug: true },
+    });
 
-    if (!church) {
-      return {};
-    }
+    if (!church) return {};
 
     const title = `${church.name} – Pickup Booking Service`;
     const description = `Book your pickup for ${church.name} services and events via Ovipoint.`;
@@ -53,12 +51,10 @@ export async function generateMetadata(
       },
     };
   } catch {
-    // If Supabase or anything else fails, just don’t block rendering
     return {};
   }
 }
 
-// Layout component – must be the default export
 export default function ChurchLayout({ children }: LayoutProps) {
   return <>{children}</>;
 }

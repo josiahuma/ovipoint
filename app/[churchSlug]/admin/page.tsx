@@ -1,152 +1,214 @@
 // app/[churchSlug]/admin/page.tsx
-import { notFound } from 'next/navigation';
+
 import Link from 'next/link';
-import { supabase } from '@/src/lib/supabaseClient';
+import { notFound, redirect } from 'next/navigation';
+import { prisma } from '@/src/lib/prisma';
+import { getCurrentChurchSession } from '@/src/lib/auth';
 
 type PageProps = {
   params: Promise<{ churchSlug: string }>;
 };
 
-// helper: how many pickup slots does this event have?
-function countSlotsForEvent(ev: any): number {
-  const [sH, sM] = (ev.pickup_start_time || '00:00').split(':').map(Number);
-  const [eH, eM] = (ev.pickup_end_time || '00:00').split(':').map(Number);
-  const interval = Number(ev.interval_minutes) || 0;
+type PickupEventRow = {
+  id: bigint;
+  churchId: bigint;
+  title: string;
+  pickupDate: Date | null;
+  capacity: number | null;
+  pickupStartTime: Date | string | null;
+  pickupEndTime: Date | string | null;
+  intervalMinutes: number | null;
+};
 
-  const startTotal = sH * 60 + sM;
-  const endTotal = eH * 60 + eM;
+type RawBooking = {
+  id: bigint;
+  pickupEventId: bigint;
+  name: string;
+  phone: string;
+  address: string;
+  pickupTime: Date | string;
+  partySize: number | null;
+};
 
-  if (!Number.isFinite(startTotal) || !Number.isFinite(endTotal)) return 0;
-  if (interval <= 0) return 0;
-  if (endTotal < startTotal) return 0;
-
-  // mirrors the slot generation in BookingForm: t += interval while t <= end
-  const diff = endTotal - startTotal;
-  return Math.floor(diff / interval) + 1;
+function toYmdUTC(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
-// helper: total seats for an event across all its slots
-function computeEventTotalSeats(ev: any): number {
-  const slots = countSlotsForEvent(ev);
-  const perSlot = Number(ev.capacity) || 0;
-  return slots * perSlot;
+// Date|string -> "HH:MM:SS"
+function toHHMMSS(value: Date | string | null | undefined): string {
+  if (!value) return '00:00:00';
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(11, 19);
+  }
+
+  if (typeof value === 'string') {
+    if (value.length >= 8) return value.slice(0, 8);
+    if (value.length === 5) return `${value}:00`;
+  }
+
+  return '00:00:00';
+}
+
+// "HH:MM:SS" -> minutes since midnight
+function hhmmssToMinutes(hhmmss: string): number {
+  const [hStr, mStr] = hhmmss.split(':');
+  const h = Number(hStr) || 0;
+  const m = Number(mStr) || 0;
+  return h * 60 + m;
+}
+
+// IMPORTANT: This is the missing function that crashed your page.
+// Total seats for an event = (capacity per slot) * (number of slots in the window)
+function computeEventTotalSeats(ev: PickupEventRow): number {
+  const cap = Number(ev.capacity ?? 0);
+  const interval = Number(ev.intervalMinutes ?? 0);
+
+  if (!cap || !interval) return 0;
+
+  const start = hhmmssToMinutes(toHHMMSS(ev.pickupStartTime));
+  const end = hhmmssToMinutes(toHHMMSS(ev.pickupEndTime));
+
+  if (end < start) return 0;
+
+  // Slots are inclusive: e.g. 09:00, 09:20, 09:40, 10:00 ...
+  const slotCount = Math.floor((end - start) / interval) + 1;
+
+  return cap * Math.max(0, slotCount);
+}
+
+function formatDate(value: Date | null | undefined): string {
+  if (!value) return 'No date';
+  return value.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatTime(value: Date | string | null | undefined): string {
+  return toHHMMSS(value).slice(0, 5);
 }
 
 export default async function ChurchDashboardPage({ params }: PageProps) {
   const { churchSlug } = await params;
 
-  // 1. Load organisation
-  const { data: church, error: churchError } = await supabase
-    .from('churches')
-    .select('id, name, slug')
-    .eq('slug', churchSlug)
-    .single();
+  if (!churchSlug) return notFound();
 
-  if (churchError || !church) {
-    return notFound();
-  }
+  // 🔒 Session guard
+  const session = await getCurrentChurchSession();
+  if (!session) redirect(`/login?slug=${churchSlug}`);
+  if (session.slug !== churchSlug) redirect(`/${session.slug}/admin`);
 
-  // 2. Load all events for this org
-  const { data: events, error: eventsError } = await supabase
-    .from('pickup_events')
-    .select('*')
-    .eq('church_id', church.id)
-    .order('pickup_date', { ascending: true });
+  // Load church
+  const church = await prisma.church.findUnique({
+    where: { slug: churchSlug },
+    select: { id: true, name: true, slug: true },
+  });
 
-  const allEvents = events || [];
-  const todayStr = new Date().toISOString().slice(0, 10);
+  if (!church) return notFound();
 
-  const upcomingEvents = allEvents.filter(
-    (e: any) => e.pickup_date >= todayStr
-  );
-  const pastEvents = allEvents.filter((e: any) => e.pickup_date < todayStr);
+  // Load events
+  const allEvents: PickupEventRow[] = await prisma.pickupEvent.findMany({
+    where: { churchId: church.id },
+    orderBy: { pickupDate: 'asc' },
+    select: {
+      id: true,
+      churchId: true,
+      title: true,
+      pickupDate: true,
+      capacity: true,
+      pickupStartTime: true,
+      pickupEndTime: true,
+      intervalMinutes: true,
+    },
+  });
+
+  const todayStr = toYmdUTC(new Date());
+
+  const upcomingEvents = allEvents.filter((e) => {
+    if (!e.pickupDate) return false;
+    return toYmdUTC(e.pickupDate) >= todayStr;
+  });
+
+  const pastEvents = allEvents.filter((e) => {
+    if (!e.pickupDate) return false;
+    return toYmdUTC(e.pickupDate) < todayStr;
+  });
 
   // total SEAT capacity for upcoming events
   const totalUpcomingCapacity = upcomingEvents.reduce(
-    (sum: number, ev: any) => sum + computeEventTotalSeats(ev),
+    (sum, ev) => sum + computeEventTotalSeats(ev),
     0
   );
 
-  // 3. Load bookings for these events (with party_size)
-  const eventIds = allEvents.map((e: any) => e.id);
+  // Load bookings (partySize)
+  const eventIds = allEvents.map((e) => e.id);
 
-  type RawBooking = {
-    id: number;
-    pickup_event_id: number;
-    name: string;
-    phone: string;
-    address: string;
-    pickup_time: string;
-    party_size: number | null;
-  };
+  const allBookings: RawBooking[] = eventIds.length
+    ? await prisma.booking.findMany({
+        where: { pickupEventId: { in: eventIds } },
+        select: {
+          id: true,
+          pickupEventId: true,
+          name: true,
+          phone: true,
+          address: true,
+          pickupTime: true,
+          partySize: true,
+        },
+      })
+    : [];
 
-  let allBookings: RawBooking[] = [];
+  // Total people booked across all events
+  const totalSeatCountAll = allBookings.reduce((sum, b) => sum + (b.partySize ?? 1), 0);
 
-  if (eventIds.length > 0) {
-    const { data: bookings, error: bookingsError } = await supabase
-      .from('bookings')
-      .select(
-        'id, pickup_event_id, name, phone, address, pickup_time, party_size'
-      )
-      .in('pickup_event_id', eventIds);
-
-    if (!bookingsError && bookings) {
-      allBookings = bookings as RawBooking[];
-    }
-  }
-
-  // Total *people* booked across all events
-  const totalSeatCountAll = allBookings.reduce(
-    (sum, b) => sum + (b.party_size ?? 1),
-    0
-  );
-
-  // pair bookings with their events
+  // Pair bookings with their event
   const bookingsWithEvent = allBookings
     .map((b) => {
-      const ev = allEvents.find((e: any) => e.id === b.pickup_event_id);
+      const ev = allEvents.find((e) => e.id === b.pickupEventId);
       if (!ev) return null;
       return { booking: b, event: ev };
     })
-    .filter(Boolean) as {
-    booking: RawBooking;
-    event: any;
-  }[];
+    .filter(Boolean) as { booking: RawBooking; event: PickupEventRow }[];
 
-  // upcoming vs past bookings
-  const upcomingBookings = bookingsWithEvent.filter(
-    (be) => be.event.pickup_date >= todayStr
-  );
-  const pastBookings = bookingsWithEvent.filter(
-    (be) => be.event.pickup_date < todayStr
-  );
+  const upcomingBookings = bookingsWithEvent.filter((be) => {
+    if (!be.event.pickupDate) return false;
+    return toYmdUTC(be.event.pickupDate) >= todayStr;
+  });
 
-  // Seats (people) in upcoming vs past bookings
+  const pastBookings = bookingsWithEvent.filter((be) => {
+    if (!be.event.pickupDate) return false;
+    return toYmdUTC(be.event.pickupDate) < todayStr;
+  });
+
   const upcomingSeatsBooked = upcomingBookings.reduce(
-    (sum, be) => sum + (be.booking.party_size ?? 1),
-    0
-  );
-  const pastSeatsBooked = pastBookings.reduce(
-    (sum, be) => sum + (be.booking.party_size ?? 1),
+    (sum, be) => sum + (be.booking.partySize ?? 1),
     0
   );
 
-  // simple "occupancy" percentage for upcoming events (seats)
+  const pastSeatsBooked = pastBookings.reduce(
+    (sum, be) => sum + (be.booking.partySize ?? 1),
+    0
+  );
+
   const occupancyPercent =
     totalUpcomingCapacity > 0
       ? Math.round((upcomingSeatsBooked / totalUpcomingCapacity) * 100)
       : 0;
 
-  // last 5 bookings (sorted by event date desc then pickup_time desc)
   const latestBookings = [...bookingsWithEvent]
     .sort((a, b) => {
-      const dateA = a.event.pickup_date;
-      const dateB = b.event.pickup_date;
+      const dateA = a.event.pickupDate?.getTime() ?? 0;
+      const dateB = b.event.pickupDate?.getTime() ?? 0;
       if (dateA < dateB) return 1;
       if (dateA > dateB) return -1;
-      // same date, compare time
-      if (a.booking.pickup_time < b.booking.pickup_time) return 1;
-      if (a.booking.pickup_time > b.booking.pickup_time) return -1;
+
+      const timeA = toHHMMSS(a.booking.pickupTime);
+      const timeB = toHHMMSS(b.booking.pickupTime);
+      if (timeA < timeB) return 1;
+      if (timeA > timeB) return -1;
       return 0;
     })
     .slice(0, 5);
@@ -154,21 +216,14 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 pt-6 space-y-6">
-        {/* Header */}
         <header className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">
-              Dashboard – {church.name}
-            </h1>
-            <p className="text-sm text-slate-600">
-              Overview of your pickup events and bookings.
-            </p>
+            <h1 className="text-2xl font-bold">Dashboard – {church.name}</h1>
+            <p className="text-sm text-slate-600">Overview of your pickup events and bookings.</p>
           </div>
+
           <nav className="flex flex-wrap items-center gap-3 text-sm">
-            <Link
-              href={`/${church.slug}`}
-              className="text-slate-700 hover:text-sky-700"
-            >
+            <Link href={`/${church.slug}`} className="text-slate-700 hover:text-sky-700">
               View public pickup page
             </Link>
             <Link
@@ -186,104 +241,65 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
           </nav>
         </header>
 
-        {/* Stats cards */}
+        {/* Stats */}
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">
-              Upcoming events
-            </p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {upcomingEvents.length}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              From today onwards
-            </p>
+            <p className="text-xs font-semibold text-slate-500">Upcoming events</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{upcomingEvents.length}</p>
+            <p className="mt-1 text-[11px] text-slate-500">From today onwards</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">
-              Past events
-            </p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {pastEvents.length}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Auto-archived
-            </p>
+            <p className="text-xs font-semibold text-slate-500">Past events</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{pastEvents.length}</p>
+            <p className="mt-1 text-[11px] text-slate-500">Auto-archived</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">
-              Total passengers
-            </p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {totalSeatCountAll}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              People booked across all events
-            </p>
+            <p className="text-xs font-semibold text-slate-500">Total passengers</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{totalSeatCountAll}</p>
+            <p className="mt-1 text-[11px] text-slate-500">People booked across all events</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">
-              Upcoming occupancy
-            </p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">
-              {occupancyPercent}%
-            </p>
+            <p className="text-xs font-semibold text-slate-500">Upcoming occupancy</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{occupancyPercent}%</p>
             <p className="mt-1 text-[11px] text-slate-500">
-              {upcomingSeatsBooked} passengers / {totalUpcomingCapacity || 0}{' '}
-              seats
+              {upcomingSeatsBooked} passengers / {totalUpcomingCapacity} seats
             </p>
           </div>
         </section>
 
-        {/* Mini chart */}
+        {/* Bar */}
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-800 mb-2">
-              Upcoming capacity usage
-            </h2>
-            <p className="text-xs text-slate-600 mb-3">
-              A simple visual showing how full your upcoming buses are.
-            </p>
+            <h2 className="text-sm font-semibold text-slate-800 mb-2">Upcoming capacity usage</h2>
+            <p className="text-xs text-slate-600 mb-3">How full your upcoming buses are.</p>
 
             <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
                 className="h-full rounded-full bg-sky-500 transition-all"
-                style={{
-                  width: `${Math.min(100, Math.max(0, occupancyPercent))}%`,
-                }}
+                style={{ width: `${Math.min(100, Math.max(0, occupancyPercent))}%` }}
               />
             </div>
 
             <p className="mt-2 text-xs text-slate-600">
-              {totalUpcomingCapacity === 0 ? (
-                <>No upcoming events configured yet.</>
-              ) : (
-                <>
-                  {upcomingSeatsBooked} of {totalUpcomingCapacity} available
-                  seats are booked.
-                </>
-              )}
+              {totalUpcomingCapacity === 0
+                ? 'No upcoming events configured yet.'
+                : `${upcomingSeatsBooked} of ${totalUpcomingCapacity} available seats are booked.`}
             </p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-slate-800 mb-2">
-              Booking breakdown
-            </h2>
-            <p className="text-xs text-slate-600 mb-3">
-              Split of passengers between upcoming and past events.
-            </p>
+            <h2 className="text-sm font-semibold text-slate-800 mb-2">Booking breakdown</h2>
+            <p className="text-xs text-slate-600 mb-3">Upcoming vs past passengers.</p>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-600">Upcoming passengers</span>
-                <span className="font-semibold">
-                  {upcomingSeatsBooked}
-                </span>
+                <span className="font-semibold">{upcomingSeatsBooked}</span>
               </div>
+
               <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-emerald-500"
@@ -291,22 +307,16 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                     width:
                       totalSeatCountAll === 0
                         ? '0%'
-                        : `${Math.min(
-                            100,
-                            Math.round(
-                              (upcomingSeatsBooked / totalSeatCountAll) * 100
-                            )
-                          )}%`,
+                        : `${Math.min(100, Math.round((upcomingSeatsBooked / totalSeatCountAll) * 100))}%`,
                   }}
                 />
               </div>
 
               <div className="flex items-center justify-between text-xs mt-3">
                 <span className="text-slate-600">Past passengers</span>
-                <span className="font-semibold">
-                  {pastSeatsBooked}
-                </span>
+                <span className="font-semibold">{pastSeatsBooked}</span>
               </div>
+
               <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-slate-500"
@@ -314,12 +324,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                     width:
                       totalSeatCountAll === 0
                         ? '0%'
-                        : `${Math.min(
-                            100,
-                            Math.round(
-                              (pastSeatsBooked / totalSeatCountAll) * 100
-                            )
-                          )}%`,
+                        : `${Math.min(100, Math.round((pastSeatsBooked / totalSeatCountAll) * 100))}%`,
                   }}
                 />
               </div>
@@ -330,59 +335,39 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
         {/* Latest bookings */}
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Latest bookings
-            </h2>
-            <Link
-              href={`/${church.slug}/admin/events`}
-              className="text-xs text-sky-600 hover:underline"
-            >
+            <h2 className="text-sm font-semibold text-slate-800">Latest bookings</h2>
+            <Link href={`/${church.slug}/admin/events`} className="text-xs text-sky-600 hover:underline">
               Go to events &amp; full booking lists
             </Link>
           </div>
 
           {latestBookings.length === 0 ? (
             <p className="text-xs text-slate-500">
-              No bookings yet. Once members start booking pickups, they will
-              appear here.
+              No bookings yet. Once members start booking pickups, they will appear here.
             </p>
           ) : (
             <div className="space-y-2 text-xs">
               {latestBookings.map(({ booking, event }) => {
-                const date = new Date(event.pickup_date);
-                const timeShort = booking.pickup_time.slice(0, 5);
-                const size = booking.party_size ?? 1;
+                const timeShort = formatTime(booking.pickupTime);
+                const size = booking.partySize ?? 1;
+
                 return (
                   <div
-                    key={booking.id}
+                    key={String(booking.id)}
                     className="flex flex-col rounded border border-slate-200 bg-slate-50 px-3 py-2"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold text-slate-800">
-                        {booking.name}
-                      </div>
-                      <span className="font-mono text-[11px] text-slate-600">
-                        {timeShort}
-                      </span>
+                      <div className="font-semibold text-slate-800">{booking.name}</div>
+                      <span className="font-mono text-[11px] text-slate-600">{timeShort}</span>
                     </div>
+
                     <div className="mt-0.5 text-[11px] text-slate-600">
-                      {event.title} ·{' '}
-                      {date.toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                      {event.title} · {formatDate(event.pickupDate)}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      Party size: {size}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      {booking.address}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      Phone: {booking.phone}
-                    </div>
+
+                    <div className="mt-0.5 text-[11px] text-slate-500">Party size: {size}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">{booking.address}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">Phone: {booking.phone}</div>
                   </div>
                 );
               })}

@@ -1,26 +1,22 @@
-// src/components/AdminEventForm.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/src/lib/supabaseClient';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type PickupEvent = {
-  id: number;
+  id: string | number;          // allow BigInt serialized as string
   title: string;
-  pickup_date: string; // "YYYY-MM-DD"
-  capacity: number; // capacity PER TIME SLOT
-  pickup_start_time: string; // "HH:MM:SS"
-  pickup_end_time: string;   // "HH:MM:SS"
-  interval_minutes: number;
+  pickupDate: string;           // "YYYY-MM-DD"
+  capacity: number;
+  pickupStartTime: string;      // "HH:MM:SS" or "HH:MM"
+  pickupEndTime: string;        // "HH:MM:SS" or "HH:MM"
+  intervalMinutes: number;
 };
 
 type AdminEventFormProps = {
-  churchId: number;
-  churchSlug: string; // used to build shareable links
-  /** If provided, the form acts in "edit" mode instead of "create" */
+  churchId: string | number;
+  churchSlug: string;
   initialEvent?: PickupEvent;
-  /** Optional URL to redirect to after successful save (e.g. "/fresh-fountain/admin") */
   returnTo?: string;
 };
 
@@ -33,20 +29,16 @@ export function AdminEventForm({
   returnTo,
 }: AdminEventFormProps) {
   const router = useRouter();
-
   const isEditMode = !!initialEvent;
 
-  // ----- Form state -----
   const [title, setTitle] = useState('');
-  const [dateIso, setDateIso] = useState(''); // "YYYY-MM-DD" for single-date mode
+  const [dateIso, setDateIso] = useState('');
 
-  // multi-date recurring mode
-  const [recurrenceType, setRecurrenceType] =
-    useState<RecurrenceType>('single');
+  const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('single');
   const [multiDateInput, setMultiDateInput] = useState('');
   const [multiDates, setMultiDates] = useState<string[]>([]);
 
-  const [capacity, setCapacity] = useState<string>('20'); // per time slot
+  const [capacity, setCapacity] = useState<string>('20');
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('10:30');
   const [intervalMinutes, setIntervalMinutes] = useState<string>('15');
@@ -56,26 +48,26 @@ export function AdminEventForm({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [shareLink, setShareLink] = useState<string | null>(null);
 
-  // Prefill when editing an existing event
   useEffect(() => {
     if (!initialEvent) return;
 
     setTitle(initialEvent.title);
-    setDateIso(initialEvent.pickup_date || '');
+    setDateIso(initialEvent.pickupDate || '');
+
     setCapacity(String(initialEvent.capacity));
 
-    // Convert "HH:MM:SS" to "HH:MM"
-    setStartTime(initialEvent.pickup_start_time.slice(0, 5));
-    setEndTime(initialEvent.pickup_end_time.slice(0, 5));
+    // accept "HH:MM:SS" or "HH:MM"
+    setStartTime(String(initialEvent.pickupStartTime).slice(0, 5));
+    setEndTime(String(initialEvent.pickupEndTime).slice(0, 5));
 
-    setIntervalMinutes(String(initialEvent.interval_minutes));
-    setSuccessMessage(null);
-    setError(null);
+    setIntervalMinutes(String(initialEvent.intervalMinutes));
 
-    // Edit mode keeps things simple: single date
     setRecurrenceType('single');
     setMultiDates([]);
     setMultiDateInput('');
+    setSuccessMessage(null);
+    setError(null);
+    setShareLink(null);
   }, [initialEvent]);
 
   const resetForm = () => {
@@ -116,7 +108,6 @@ export function AdminEventForm({
       return;
     }
 
-    // Which dates?
     let datesToCreate: string[] = [];
 
     if (isEditMode && initialEvent) {
@@ -141,11 +132,11 @@ export function AdminEventForm({
       }
     }
 
-    // Validate times: end must be after start
     const [startH, startM] = startTime.split(':').map(Number);
     const [endH, endM] = endTime.split(':').map(Number);
     const startTotal = startH * 60 + startM;
     const endTotal = endH * 60 + endM;
+
     if (endTotal <= startTotal) {
       setError('Pickup end time must be after start time.');
       return;
@@ -166,70 +157,69 @@ export function AdminEventForm({
 
     setSaving(true);
 
-    const basePayload = {
-      church_id: churchId,
-      title,
-      capacity: capacityNum, // per time slot
-      pickup_start_time: `${startTime}:00`,
-      pickup_end_time: `${endTime}:00`,
-      interval_minutes: intervalNum,
-    };
-
     try {
       if (isEditMode && initialEvent) {
-        // UPDATE
-        const payload = {
-          ...basePayload,
-          pickup_date: datesToCreate[0],
-        };
+        const res = await fetch('/api/admin/events/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            churchId: String(churchId),
+            eventId: String(initialEvent.id),
+            title,
+            pickupDate: datesToCreate[0],
+            capacity: capacityNum,
+            pickupStartTime: `${startTime}:00`,
+            pickupEndTime: `${endTime}:00`,
+            intervalMinutes: intervalNum,
+          }),
+        });
 
-        const { error: updateError } = await supabase
-          .from('pickup_events')
-          .update(payload)
-          .eq('id', initialEvent.id);
+        const json = await res.json().catch(() => null);
 
-        if (updateError) {
-          console.error(updateError);
-          setError('Failed to update event. Please try again.');
+        if (!res.ok) {
+          setError(json?.error || 'Failed to update event. Please try again.');
         } else {
           setSuccessMessage('Event updated successfully.');
-
-          if (returnTo) {
-            router.push(returnTo);
-          } else {
-            router.refresh();
-          }
+          if (returnTo) router.push(returnTo);
+          else router.refresh();
         }
       } else {
-        // CREATE one or many
-        const payloads = datesToCreate.map((date) => ({
-          ...basePayload,
-          pickup_date: date,
-        }));
+        const res = await fetch('/api/admin/events/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            churchId: String(churchId),
+            title,
+            dates: datesToCreate,
+            capacity: capacityNum,
+            pickupStartTime: `${startTime}:00`,
+            pickupEndTime: `${endTime}:00`,
+            intervalMinutes: intervalNum,
+          }),
+        });
 
-        const { data, error: insertError } = await supabase
-          .from('pickup_events')
-          .insert(payloads)
-          .select('id, pickup_date');
+        const json = await res.json().catch(() => null);
 
-        if (insertError) {
-          console.error(insertError);
-          setError('Failed to create event(s). Please try again.');
+        if (!res.ok) {
+          setError(json?.error || 'Failed to create event(s). Please try again.');
         } else {
-          if (payloads.length === 1 && data && data.length > 0) {
-            const created = data[0];
+          const createdIds: string[] = json?.createdIds || [];
+          if (createdIds.length === 1) {
             setSuccessMessage('Pickup event created.');
-            setShareLink(`/${churchSlug}/events/${created.id}`);
+            setShareLink(`/${churchSlug}/events/${createdIds[0]}`);
           } else {
-            setSuccessMessage(
-              `Created ${payloads.length} pickup events for the selected dates.`
-            );
+            setSuccessMessage(`Created ${createdIds.length} pickup events for the selected dates.`);
           }
 
           resetForm();
           router.refresh();
         }
       }
+    } catch (err) {
+      console.error(err);
+      setError('Unexpected error. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -248,7 +238,6 @@ export function AdminEventForm({
         />
       </div>
 
-      {/* Dates / recurrence */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <label className="block text-sm font-medium">Pickup dates</label>
@@ -265,9 +254,7 @@ export function AdminEventForm({
               <select
                 className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                 value={recurrenceType}
-                onChange={(e) =>
-                  setRecurrenceType(e.target.value as RecurrenceType)
-                }
+                onChange={(e) => setRecurrenceType(e.target.value as RecurrenceType)}
               >
                 <option value="single">Single date</option>
                 <option value="multiple">Multiple selected dates</option>
@@ -299,7 +286,8 @@ export function AdminEventForm({
                       Add date
                     </button>
                   </div>
-                  {multiDates.length > 0 && (
+
+                  {multiDates.length > 0 ? (
                     <ul className="space-y-1 text-xs text-slate-700">
                       {multiDates.map((d) => (
                         <li
@@ -317,11 +305,9 @@ export function AdminEventForm({
                         </li>
                       ))}
                     </ul>
-                  )}
-                  {multiDates.length === 0 && (
+                  ) : (
                     <p className="text-xs text-slate-500">
-                      Add each date this event should run on (e.g. all Sundays in
-                      a month).
+                      Add each date this event should run on (e.g. all Sundays in a month).
                     </p>
                   )}
                 </div>
@@ -342,13 +328,11 @@ export function AdminEventForm({
             onChange={(e) => setCapacity(e.target.value)}
           />
           <p className="text-[11px] text-slate-500">
-            This applies to each pickup time (e.g. 08:00, 08:15 etc.), not the
-            whole event.
+            This applies to each pickup time (e.g. 08:00, 08:15 etc.), not the whole event.
           </p>
         </div>
       </div>
 
-      {/* Times */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <label className="block text-sm font-medium">Pickup start time</label>
@@ -371,11 +355,8 @@ export function AdminEventForm({
         </div>
       </div>
 
-      {/* Interval */}
       <div className="space-y-1">
-        <label className="block text-sm font-medium">
-          Time interval (minutes)
-        </label>
+        <label className="block text-sm font-medium">Time interval (minutes)</label>
         <input
           type="number"
           min={1}
@@ -385,11 +366,8 @@ export function AdminEventForm({
         />
       </div>
 
-      {/* Messages */}
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {successMessage && (
-        <p className="text-sm text-green-700">{successMessage}</p>
-      )}
+      {successMessage && <p className="text-sm text-green-700">{successMessage}</p>}
       {shareLink && (
         <p className="text-xs text-slate-600">
           Share this link with your members:{' '}
@@ -397,19 +375,12 @@ export function AdminEventForm({
         </p>
       )}
 
-      {/* Submit */}
       <button
         type="submit"
         disabled={saving}
         className="inline-flex items-center rounded bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
       >
-        {saving
-          ? isEditMode
-            ? 'Updating...'
-            : 'Creating...'
-          : isEditMode
-          ? 'Update event'
-          : 'Create event(s)'}
+        {saving ? (isEditMode ? 'Updating...' : 'Creating...') : isEditMode ? 'Update event' : 'Create event(s)'}
       </button>
     </form>
   );

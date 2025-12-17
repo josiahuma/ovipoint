@@ -1,0 +1,99 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// prisma/schema.prisma
+
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Churches (public.churches)
+model Church {
+  id              BigInt      @id @default(autoincrement())
+  name            String
+  slug            String      @unique
+  createdAt       DateTime?   @default(now()) @db.Timestamp(0)
+  smsContactPhone String?     
+  adminEmail      String?  @unique
+  passwordHash    String?  // optional for now
+
+  // relations
+  pickupEventTemplates PickupEventTemplate[]
+  pickupEvents         PickupEvent[]
+}
+
+// Pickup event templates (public.pickup_event_templates)
+model PickupEventTemplate {
+  id              BigInt             @id @default(autoincrement())
+  churchId        BigInt
+  title           String
+  pickupStartTime DateTime           @db.Time(0)   // time without time zone
+  pickupEndTime   DateTime           @db.Time(0)
+  intervalMinutes Int
+  capacity        Int
+  createdAt       DateTime?          @default(now()) @db.Timestamp(0)
+  slug            String?            @unique
+
+  // relations
+  church     Church            @relation(fields: [churchId], references: [id])
+  eventDates PickupEventDate[]
+}
+
+// Pickup event dates (public.pickup_event_dates)
+model PickupEventDate {
+  id         BigInt             @id @default(autoincrement())
+  templateId BigInt
+  pickupDate DateTime           @db.Date
+
+  // relations
+  template PickupEventTemplate @relation(fields: [templateId], references: [id])
+  bookings Booking[]
+}
+
+// Concrete pickup events (public.pickup_events)
+model PickupEvent {
+  id              BigInt      @id @default(autoincrement())
+  title           String
+  pickupDate      DateTime    @db.Date
+  capacity        Int         @default(0)
+  pickupStartTime DateTime    @db.Time(0)
+  pickupEndTime   DateTime    @db.Time(0)
+  intervalMinutes Int         @default(15)
+  insertedAt      DateTime?   @default(now()) @db.Timestamp(0)
+  updatedAt       DateTime?   @default(now()) @db.Timestamp(0)
+  churchId        BigInt
+  bookingsOpen    Boolean     @default(true)
+
+  // relations
+  church   Church    @relation(fields: [churchId], references: [id])
+  bookings Booking[]
+}
+
+// Bookings for pickup events (public.bookings)
+model Booking {
+  id            BigInt      @id @default(autoincrement())
+  pickupEventId BigInt
+  name          String
+  phone         String
+  address       String
+  pickupTime    DateTime    @db.Time(0)
+  insertedAt    DateTime?   @default(now()) @db.Timestamp(0)
+  updatedAt     DateTime?   @default(now()) @db.Timestamp(0)
+  eventDateId   BigInt?
+  partySize     Int         @default(1)
+
+  // relations
+  pickupEvent PickupEvent      @relation(fields: [pickupEventId], references: [id])
+  eventDate   PickupEventDate? @relation(fields: [eventDateId], references: [id])
+}
+

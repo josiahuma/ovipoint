@@ -2,69 +2,87 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/src/lib/supabaseClient';
 import Image from 'next/image';
-
+import { useEffect, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 
 type AuthState = 'loading' | 'loggedIn' | 'loggedOut';
 
+type MeSession = {
+  churchId: number;
+  slug: string;
+  adminEmail: string | null;
+};
+
 export function SiteHeader() {
   const router = useRouter();
+  const pathname = usePathname();   // 👈 track current route
 
   const [authState, setAuthState] = useState<AuthState>('loading');
   const [churchSlug, setChurchSlug] = useState<string | null>(null);
-  const [churchName, setChurchName] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Check current user + listen for changes
+  // Read our JWT-based session via /api/me
   useEffect(() => {
     let mounted = true;
 
-    const applyUser = (user: any | null) => {
-      if (!user) {
-        setChurchSlug(null);
-        setChurchName(null);
-        setUserEmail(null);
-        setAuthState('loggedOut');
-        return;
-      }
+    const loadSession = async () => {
+      try {
+        const res = await fetch('/api/me', {
+          method: 'GET',
+          credentials: 'include',
+        });
 
-      const meta = user.user_metadata as any;
-      setChurchSlug(meta?.church_slug ?? null);
-      setChurchName(meta?.church_name ?? null);
-      setUserEmail(user.email ?? null);
-      setAuthState('loggedIn');
-    };
-
-    const loadUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!mounted) return;
-      applyUser(data.user);
-    };
-
-    loadUser();
-
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
         if (!mounted) return;
-        applyUser(session?.user ?? null);
+
+        if (!res.ok) {
+          setAuthState('loggedOut');
+          setChurchSlug(null);
+          setUserEmail(null);
+          return;
+        }
+
+        const json = (await res.json()) as { session: MeSession | null };
+
+        if (json.session) {
+          setAuthState('loggedIn');
+          setChurchSlug(json.session.slug);
+          setUserEmail(json.session.adminEmail ?? null);
+        } else {
+          setAuthState('loggedOut');
+          setChurchSlug(null);
+          setUserEmail(null);
+        }
+      } catch (err) {
+        console.error('Error loading session from /api/me', err);
+        if (!mounted) return;
+        setAuthState('loggedOut');
+        setChurchSlug(null);
+        setUserEmail(null);
       }
-    );
+    };
+
+    loadSession();
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [pathname]);  // 👈 re-run whenever the route changes
+
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.error('Logout error', err);
+    }
+
     setAuthState('loggedOut');
     setChurchSlug(null);
-    setChurchName(null);
     setUserEmail(null);
     setMenuOpen(false);
     router.push('/');
@@ -110,7 +128,6 @@ export function SiteHeader() {
       {/* TOP BAR */}
       <div className="w-full bg-white/80 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4">
-          {/* Main row */}
           <div className="flex items-center justify-between py-3">
             {/* Left: Logo */}
             <Link
@@ -137,9 +154,9 @@ export function SiteHeader() {
               </div>
             </Link>
 
-            {/* Desktop Navigation */}
+            {/* Desktop navigation */}
             <nav className="hidden items-center gap-8 text-sm md:flex">
-              {/* Public Pages */}
+              {/* Public pages */}
               <div className="flex items-center gap-6">
                 <Link href="/" className="text-slate-700 hover:text-sky-700">
                   Home
@@ -161,9 +178,9 @@ export function SiteHeader() {
                 </Link>
               </div>
 
-              {/* Admin Menu Cluster */}
+              {/* Admin cluster when logged in */}
               {authState === 'loggedIn' && churchSlug && (
-                <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
+                <div className="flex items-center gap-3 border-l border-slate-200 pl-6">
                   <Link
                     href={dashboardHref}
                     className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100"
@@ -202,9 +219,9 @@ export function SiteHeader() {
                 </div>
               )}
 
-              {/* Logged out */}
+              {/* Logged out state */}
               {authState === 'loggedOut' && (
-                <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
+                <div className="flex items-center gap-3 border-l border-slate-200 pl-6">
                   <Link
                     href="/login"
                     className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-800 hover:bg-slate-100"
@@ -225,7 +242,7 @@ export function SiteHeader() {
             <button
               type="button"
               className="inline-flex items-center justify-center rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-100 md:hidden"
-              onClick={() => setMenuOpen((open) => !open)}
+              onClick={() => setMenuOpen(open => !open)}
               aria-label="Toggle navigation"
             >
               <svg className="h-6 w-6" fill="none" stroke="currentColor">
@@ -322,19 +339,19 @@ export function SiteHeader() {
       {authState === 'loggedIn' && (
         <div className="w-full border-t border-slate-200 bg-slate-50 py-1 text-xs text-slate-600">
           <div className="mx-auto max-w-7xl px-4">
-            You're logged in as{' '}
+            You&apos;re logged in as{' '}
             <span className="font-medium">
               {userEmail ?? 'admin'}
             </span>
             {churchSlug && (
               <>
                 {' '}
-                · Organisation:{' '}
+                · Organisation URL:{' '}
                 <Link
                   href={`/${churchSlug}`}
                   className="font-medium text-sky-700 underline underline-offset-2"
                 >
-                  {churchName ?? churchSlug}
+                  {churchSlug}
                 </Link>
               </>
             )}

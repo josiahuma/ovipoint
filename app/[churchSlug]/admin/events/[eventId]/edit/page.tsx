@@ -1,7 +1,10 @@
 // app/[churchSlug]/admin/events/[eventId]/edit/page.tsx
-import { notFound } from 'next/navigation';
+// @ts-nocheck
+
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/src/lib/supabaseClient';
+import { prisma } from '@/src/lib/prisma';
+import { getCurrentChurchSession } from '@/src/lib/auth';
 import { AdminEventForm } from '@/src/components/AdminEventForm';
 
 type PageProps = {
@@ -11,60 +14,78 @@ type PageProps = {
   }>;
 };
 
+function serializeEvent(ev: any) {
+  if (!ev) return ev;
+
+  return {
+    ...ev,
+    id: String(ev.id),
+    churchId: String(ev.churchId),
+
+    // Dates
+    pickupDate: ev.pickupDate ? ev.pickupDate.toISOString() : null,
+    createdAt: ev.createdAt ? ev.createdAt.toISOString() : null,
+    updatedAt: ev.updatedAt ? ev.updatedAt.toISOString() : null,
+  };
+}
+
 export default async function EditEventPage({ params }: PageProps) {
   const { churchSlug, eventId } = await params;
 
-  // 1. Load the church
-  const { data: church, error: churchError } = await supabase
-    .from('churches')
-    .select('id, name, slug')
-    .eq('slug', churchSlug)
-    .single();
+  if (!churchSlug || !eventId) return notFound();
 
-  if (churchError || !church) {
-    return notFound();
-  }
+  // 🔒 Guard (JWT)
+  const session = await getCurrentChurchSession();
+  if (!session) redirect(`/login?slug=${churchSlug}`);
+  if (session.slug !== churchSlug) redirect(`/${session.slug}/admin`);
 
-  // 2. Load the event, scoped to this church
-  const { data: event, error: eventError } = await supabase
-    .from('pickup_events')
-    .select('*')
-    .eq('id', Number(eventId))
-    .eq('church_id', church.id)
-    .single();
+  // 1) Load church
+  const church = await prisma.church.findUnique({
+    where: { slug: churchSlug },
+    select: { id: true, name: true, slug: true },
+  });
 
-  if (eventError || !event) {
-    return notFound();
-  }
+  if (!church) return notFound();
+
+  // 2) Load event (scoped to this church)
+  const eventIdBig = BigInt(eventId);
+
+  const event = await prisma.pickupEvent.findFirst({
+    where: {
+      id: eventIdBig,
+      churchId: church.id,
+    },
+  });
+
+  if (!event) return notFound();
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 pt-6 space-y-6">
         <header className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">
-              Edit event – {church.name}
-            </h1>
+            <h1 className="text-2xl font-bold">Edit event – {church.name}</h1>
             <p className="text-slate-600 text-sm">
               Update the pickup details for this event.
             </p>
           </div>
+
           <nav className="flex gap-4 text-sm">
             <Link
-              href={`/${church.slug}/admin`}
+              href={`/${church.slug}/admin/events`}
               className="text-slate-700 hover:text-sky-700"
             >
-              &larr; Back to admin
+              &larr; Back to events
             </Link>
           </nav>
         </header>
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <AdminEventForm
-            churchId={church.id}
-            churchSlug={church.slug}   // ✅ ADD THIS LINE
-            initialEvent={event}
-            returnTo={`/${church.slug}/admin`}
+            churchId={String(church.id)}
+            churchSlug={church.slug}
+            initialEvent={serializeEvent(event)}
+            returnTo={`/${church.slug}/admin/events`}
           />
         </section>
       </div>

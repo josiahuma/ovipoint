@@ -1,18 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/src/lib/supabaseClient';
 
 type Props = {
   church: {
-    id: number;
+    id: string | number; // can be BigInt serialized as string
     name: string;
-    sms_contact_phone?: string | null;
+    smsContactPhone?: string | null; // prisma field name
   };
 };
 
 export function AdminChurchSettingsForm({ church }: Props) {
-  const [smsPhone, setSmsPhone] = useState(church.sms_contact_phone || '');
+  const [smsPhone, setSmsPhone] = useState(church.smsContactPhone || '');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,29 +22,36 @@ export function AdminChurchSettingsForm({ church }: Props) {
     setError(null);
     setSuccess(null);
 
-    const { error } = await supabase
-      .from('churches')
-      .update({
-        sms_contact_phone: smsPhone.trim() || null,
-      })
-      .eq('id', church.id);
+    try {
+      const res = await fetch('/api/admin/church/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          churchId: String(church.id),
+          smsContactPhone: smsPhone.trim() || null,
+        }),
+      });
 
-    if (error) {
-      console.error(error);
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setError(json?.error || 'Failed to save settings.');
+      } else {
+        setSuccess('Settings saved.');
+      }
+    } catch (err) {
+      console.error(err);
       setError('Failed to save settings.');
-    } else {
-      setSuccess('Settings saved.');
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   };
 
   return (
     <form onSubmit={handleSave} className="space-y-3">
       <div className="space-y-1">
-        <label className="block text-sm font-medium">
-          Admin SMS contact phone
-        </label>
+        <label className="block text-sm font-medium">Admin SMS contact phone</label>
         <input
           type="tel"
           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"

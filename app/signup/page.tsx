@@ -4,7 +4,6 @@
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/src/lib/supabaseClient';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -18,38 +17,22 @@ export default function SignupPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // app/signup/page.tsx (only the handleSubmit + validation part changes)
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
     const cleanSlug = slug.trim().toLowerCase();
+    const cleanEmail = email.trim();
 
-    if (!orgName || !cleanSlug || !email || !password) {
+    if (!orgName || !cleanSlug || !cleanEmail || !password) {
       setErrorMsg('Please fill in church name, URL, email and password.');
       return;
     }
 
     setLoading(true);
     try {
-      // 1. Create auth user *with metadata* (church_slug)
-      const { data: signUpData, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            church_slug: cleanSlug, // 👈 this is what login will read
-          },
-        },
-      });
-
-      if (authError) {
-        console.error('authError', authError);
-        setErrorMsg(authError.message || 'Failed to create admin account.');
-        return;
-      }
-
-      // 2. Create church row via API
       const res = await fetch('/api/create-church', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,33 +40,40 @@ export default function SignupPage() {
           name: orgName.trim(),
           slug: cleanSlug,
           sms_contact_phone: adminMobile.trim() || null,
+          email: cleanEmail,
+          password,
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
+
       if (!res.ok) {
         console.error('create-church error', json);
         setErrorMsg(
-          json.error || 'Failed to create church space. Please try again.'
+          json?.error || 'Failed to create church space. Please try again.',
         );
         return;
       }
 
-      // 3. Success → send them to login
-      setSuccessMsg('Account created. You can now log in to your admin area.');
-      router.push('/login');
+      // At this point the API has created the church AND set a session cookie.
+      setSuccessMsg('Church created. Taking you to your admin area…');
+      router.push(`/${cleanSlug}/admin`);
+    } catch (err) {
+      console.error('Signup error:', err);
+      setErrorMsg('Unexpected error. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-lg px-4 pt-10 pb-16">
         <h1 className="mb-2 text-2xl font-bold">Create your Ovipoint admin</h1>
         <p className="mb-6 text-sm text-slate-600">
-          This will create a secure admin login and a dedicated URL for your
-          church or organisation.
+          This will create a dedicated URL for your church or organisation.
+          Admin login will be added shortly as part of the new database setup.
         </p>
 
         <form
@@ -126,7 +116,7 @@ export default function SignupPage() {
             </p>
           </div>
 
-          {/* email */}
+          {/* email (collected for future auth) */}
           <div className="space-y-1">
             <label className="block text-xs font-medium text-slate-700">
               Admin email
@@ -140,7 +130,7 @@ export default function SignupPage() {
             />
           </div>
 
-          {/* password */}
+          {/* password (not used yet) */}
           <div className="space-y-1">
             <label className="block text-xs font-medium text-slate-700">
               Password
@@ -148,7 +138,7 @@ export default function SignupPage() {
             <input
               type="password"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Create a secure password"
+              placeholder="We&apos;ll enable secure login soon"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -157,7 +147,7 @@ export default function SignupPage() {
           {/* mobile */}
           <div className="space-y-1">
             <label className="block text-xs font-medium text-slate-700">
-              Admin mobile (optional, for SMS alerts)
+              Admin mobile (optional, for SMS alerts later)
             </label>
             <input
               type="tel"
@@ -180,13 +170,13 @@ export default function SignupPage() {
             disabled={loading}
             className="mt-2 w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
-            {loading ? 'Creating account…' : 'Sign up for Ovipoint'}
+            {loading ? 'Creating church…' : 'Sign up for Ovipoint'}
           </button>
 
           <p className="text-[11px] text-slate-500">
-            Already have an account?{' '}
+            Already have a church space?{' '}
             <Link href="/login" className="font-semibold text-sky-700">
-              Log in here
+              Go to login
             </Link>
             .
           </p>

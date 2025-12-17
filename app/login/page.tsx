@@ -4,12 +4,12 @@
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/src/lib/supabaseClient';
 
 export default function LoginPage() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
+  const [slug, setSlug] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -18,41 +18,38 @@ export default function LoginPage() {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!email || !password) {
-      setErrorMsg('Please enter your email and password.');
+    const cleanSlug = slug.trim().toLowerCase();
+
+    if (!email || !cleanSlug || !password) {
+      setErrorMsg('Please enter your email, church URL and password.');
       return;
     }
 
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          slug: cleanSlug,
+          password,
+        }),
       });
 
-      if (error) {
-        console.error(error);
-        setErrorMsg(error.message || 'Failed to log in.');
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErrorMsg(json?.error || 'Failed to log in.');
         return;
       }
 
-      const user = data.user;
-      if (!user) {
-        setErrorMsg('No user returned. Please try again.');
-        return;
-      }
-
-      // Get slug from user metadata (set during signup)
-      const meta = user.user_metadata as any;
-      const slug = meta?.church_slug;
-
-      if (slug) {
-        router.push(`/${slug}/admin`);
-      } else {
-        // Fallback: just go to generic admin list if you ever add one
-        router.push('/admin');
-      }
+      // Cookie is set by the API, so just go to the admin area
+      router.push(`/${cleanSlug}/admin`);
+    } catch (err) {
+      console.error('Login error:', err);
+      setErrorMsg('Unexpected error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -63,7 +60,7 @@ export default function LoginPage() {
       <div className="mx-auto max-w-md px-4 pt-10 pb-16">
         <h1 className="mb-2 text-2xl font-bold">Church admin login</h1>
         <p className="mb-6 text-sm text-slate-600">
-          Log in to manage your pickup dates and view bookings.
+          Log in with your admin email, password and the Ovipoint URL slug for your church.
         </p>
 
         <form
@@ -90,10 +87,31 @@ export default function LoginPage() {
             <input
               type="password"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Your password"
+              placeholder="Your admin password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-slate-700">
+              Church URL
+            </label>
+            <div className="flex rounded border border-slate-300 bg-white text-sm">
+              <span className="inline-flex items-center border-r border-slate-200 px-2 text-slate-500">
+                ovipoint.com/
+              </span>
+              <input
+                type="text"
+                className="flex-1 px-2 py-2 outline-none"
+                placeholder="fresh-fountain"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Use the same slug you chose during signup.
+            </p>
           </div>
 
           {errorMsg && (
@@ -107,7 +125,7 @@ export default function LoginPage() {
             disabled={loading}
             className="mt-2 w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
           >
-            {loading ? 'Logging in…' : 'Login'}
+            {loading ? 'Logging in…' : 'Go to admin area'}
           </button>
 
           <p className="text-[11px] text-slate-500">

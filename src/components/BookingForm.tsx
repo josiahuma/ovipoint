@@ -1,51 +1,53 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { supabase } from '@/src/lib/supabaseClient';
+import { useMemo, useState } from 'react';
 
 type ExistingBooking = {
-  pickup_time: string; // "HH:MM:SS"
+  pickup_time: Date | string; // comes from server mapping
   party_size?: number | null;
 };
 
-type BookingFormProps = {
+type Props = {
   eventId: number;
-  capacity: number; // per time slot
-  pickupStartTime: string;  // "HH:MM:SS"
-  pickupEndTime: string;    // "HH:MM:SS"
+  capacity: number;
+  pickupStartTime: Date | string;
+  pickupEndTime: Date | string;
   intervalMinutes: number;
   existingBookings: ExistingBooking[];
-  adminPhone?: string | null;
+  adminPhone?: string;
   eventTitle: string;
-  eventDate: string;   // "YYYY-MM-DD"
+  eventDate: string; // YYYY-MM-DD
   churchName: string;
 };
 
-const formatTime = (time: string) => time.slice(0, 5);
+function toHHMM(value: Date | string): string {
+  if (value instanceof Date) return value.toISOString().slice(11, 16);
+  if (typeof value === 'string') return value.slice(0, 5);
+  return '00:00';
+}
 
-const generateSlots = (
-  startTime: string,
-  endTime: string,
-  intervalMinutes: number
-): string[] => {
-  const [startH, startM] = startTime.split(':').map(Number);
-  const [endH, endM] = endTime.split(':').map(Number);
+function toHHMMFromPickup(value: Date | string): string {
+  if (value instanceof Date) return value.toISOString().slice(11, 16);
+  if (typeof value === 'string') return value.slice(0, 5);
+  return '00:00';
+}
 
-  const startTotal = startH * 60 + startM;
-  const endTotal = endH * 60 + endM;
+function generateSlots(startHHMM: string, endHHMM: string, intervalMinutes: number): string[] {
+  const [sh, sm] = startHHMM.split(':').map(Number);
+  const [eh, em] = endHHMM.split(':').map(Number);
+
+  const startTotal = sh * 60 + sm;
+  const endTotal = eh * 60 + em;
 
   const slots: string[] = [];
   for (let t = startTotal; t <= endTotal; t += intervalMinutes) {
     const h = Math.floor(t / 60);
     const m = t % 60;
-    const hh = String(h).padStart(2, '0');
-    const mm = String(m).padStart(2, '0');
-    slots.push(`${hh}:${mm}:00`);
+    slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
   }
   return slots;
-};
+}
 
-// helper to trigger SMS via API route
 async function sendSms(to: string | undefined | null, message: string) {
   const phone = to?.trim();
   if (!phone) return;
@@ -72,58 +74,49 @@ export function BookingForm({
   eventTitle,
   eventDate,
   churchName,
-}: BookingFormProps) {
+}: Props) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [groupSize, setGroupSize] = useState<number>(1);
-  const [pickupTime, setPickupTime] = useState(''); // "HH:MM"
-  const [saving, setSaving] = useState(false);
+  const [partySize, setPartySize] = useState(1);
+
+  const [selectedSlot, setSelectedSlot] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [bookings, setBookings] = useState<ExistingBooking[]>(existingBookings);
 
-  // ---- Derived slot + capacity info ----
-  const allSlots = useMemo(
-    () => generateSlots(pickupStartTime, pickupEndTime, intervalMinutes),
-    [pickupStartTime, pickupEndTime, intervalMinutes]
-  );
+  const startHHMM = toHHMM(pickupStartTime);
+  const endHHMM = toHHMM(pickupEndTime);
 
-  const { slotUsage, slotRemaining, totalUsed, totalCapacity } = useMemo(() => {
-    const usage: Record<string, number> = {};
+  const allSlots = useMemo(() => {
+    return generateSlots(startHHMM, endHHMM, intervalMinutes);
+  }, [startHHMM, endHHMM, intervalMinutes]);
 
-    bookings.forEach((b) => {
-      const short = formatTime(b.pickup_time);
-      const p = b.party_size ?? 1;
-      usage[short] = (usage[short] || 0) + p;
-    });
+  // Build slot usage map from existingBookings (people, not bookings)
+  const slotUsedMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const b of existingBookings || []) {
+      const hhmm = toHHMMFromPickup(b.pickup_time);
+      const size = b.party_size ?? 1;
+      map[hhmm] = (map[hhmm] || 0) + size;
+    }
+    return map;
+  }, [existingBookings]);
 
-    const remaining: Record<string, number> = {};
-    allSlots.forEach((slot) => {
-      const short = formatTime(slot);
-      const used = usage[short] || 0;
-      remaining[short] = Math.max(0, capacity - used);
-    });
+  const slotRemainingMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const slot of allSlots) {
+      const used = slotUsedMap[slot] || 0;
+      map[slot] = Math.max(0, capacity - used);
+    }
+    return map;
+  }, [allSlots, slotUsedMap, capacity]);
 
-    const totalCap = capacity * allSlots.length;
-    const totalUsedSeats = Object.values(usage).reduce(
-      (sum, n) => sum + n,
-      0
-    );
-
-    return {
-      slotUsage: usage,
-      slotRemaining: remaining,
-      totalUsed: totalUsedSeats,
-      totalCapacity: totalCap,
-    };
-  }, [bookings, allSlots, capacity]);
-
-  const anySeatsLeft = totalUsed < totalCapacity;
-
-  const availableSlots = allSlots
-    .map((slot) => formatTime(slot))
-    .filter((short) => slotRemaining[short] > 0);
+  const availableSlots = useMemo(() => {
+    const size = Math.max(1, partySize || 1);
+    return allSlots.filter((slot) => (slotRemainingMap[slot] || 0) >= size);
+  }, [allSlots, slotRemainingMap, partySize]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,253 +126,164 @@ export function BookingForm({
     const trimmedName = name.trim();
     const trimmedPhone = phone.trim();
     const trimmedAddress = address.trim();
-    const chosenTimeShort = pickupTime;
+    const size = Math.max(1, Number(partySize || 1));
 
-    if (!trimmedName || !trimmedPhone || !trimmedAddress || !chosenTimeShort) {
-      setError('Please fill in all fields and choose a pickup time.');
+    if (!trimmedName || !trimmedPhone || !trimmedAddress) {
+      setError('Please fill in name, phone, and address.');
       return;
     }
 
-    const size = groupSize || 1;
-    if (size < 1) {
-      setError('Group size must be at least 1.');
+    if (!selectedSlot) {
+      setError('Please choose a pickup time.');
       return;
     }
 
-    // Simple front-end capacity check for chosen slot
-    const frontRemaining = slotRemaining[chosenTimeShort] ?? 0;
-    if (frontRemaining < size) {
-      setError(
-        'It looks like that time slot cannot fit your group size anymore. Please choose another time.'
-      );
+    // Client-side quick check (still keep server as source of truth)
+    if ((slotRemainingMap[selectedSlot] || 0) < size) {
+      setError('That time slot is full for your group size. Please choose another time.');
       return;
     }
 
-    setSaving(true);
+    setLoading(true);
 
     try {
-      // 1) Check if this phone already has a booking for this event
-      const { data: existingForPhone, error: existErr } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('pickup_event_id', eventId)
-        .eq('phone', trimmedPhone);
-
-      if (existErr) {
-        console.error('existingForPhone error', existErr);
-      }
-
-      if (existingForPhone && existingForPhone.length > 0) {
-        setError(
-          'It looks like you already have a booking for this event with this phone number. Use "Find my booking" on the homepage to change it instead of creating another one.'
-        );
-        setSaving(false);
-        return;
-      }
-
-      const fullTime =
-        chosenTimeShort.length === 5
-          ? `${chosenTimeShort}:00`
-          : chosenTimeShort;
-
-      // 2) Re-check capacity for that exact slot from DB (race-condition safety)
-      const { data: latestSlotBookings, error: latestErr } = await supabase
-        .from('bookings')
-        .select('pickup_time, party_size')
-        .eq('pickup_event_id', eventId)
-        .eq('pickup_time', fullTime);
-
-      if (latestErr) {
-        console.error('latestSlotBookings error', latestErr);
-      }
-
-      if (latestSlotBookings) {
-        const used = latestSlotBookings.reduce((sum, b) => {
-          const p = (b as any).party_size ?? 1;
-          return sum + p;
-        }, 0);
-        const remaining = capacity - used;
-
-        if (remaining < size) {
-          setError(
-            'It looks like you already have a booking at that time, or that time has just filled up. Please choose another slot.'
-          );
-          setSaving(false);
-          return;
-        }
-      }
-
-      // 3) Insert booking
-      const { error: insertError } = await supabase.from('bookings').insert({
-        pickup_event_id: eventId,
-        name: trimmedName,
-        phone: trimmedPhone,
-        address: trimmedAddress,
-        pickup_time: fullTime,
-        party_size: size,
+      const res = await fetch('/api/bookings/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          name: trimmedName,
+          phone: trimmedPhone,
+          address: trimmedAddress,
+          pickupTime: selectedSlot, // "HH:MM"
+          partySize: size,
+        }),
       });
 
-      if (insertError) {
-        // In your console you were seeing `{}` – log the whole thing for debugging
-        console.error('insertError', insertError);
-        setError(
-          'Something went wrong while saving your booking. Please try again in a moment.'
-        );
-        setSaving(false);
+      const json = await res.json();
+
+      if (!res.ok || !json?.ok) {
+        setError(json?.error || 'Something went wrong while saving your booking.');
+        setLoading(false);
         return;
       }
 
-      // 4) SMS notifications (best-effort)
-      try {
-        const eventDateObj = new Date(eventDate);
-        const dateStr = eventDateObj.toLocaleDateString(undefined, {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-        });
+      // SMS (optional)
+      const prettyDate = new Date(`${eventDate}T00:00:00.000Z`).toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
 
-        const userMsg = `Your church bus pickup is booked: ${churchName} – ${eventTitle} on ${dateStr} at ${chosenTimeShort} for ${size} person(s).`;
-        const adminMsg = `New bus pickup booking for ${churchName}: ${trimmedName} (${trimmedPhone}) on ${dateStr} at ${chosenTimeShort}, party size ${size}, address: ${trimmedAddress}.`;
+      const userMsg = `Your bus pickup is confirmed: ${eventTitle} (${churchName}) on ${prettyDate} at ${selectedSlot} for ${size} person(s).`;
+      const adminMsg = `New booking: ${trimmedName} (${trimmedPhone}) for ${eventTitle} on ${prettyDate} at ${selectedSlot}, party size ${size}.`;
 
-        await sendSms(trimmedPhone, userMsg);
-        await sendSms(adminPhone, adminMsg);
-      } catch (smsErr) {
-        console.error('Error while sending SMS notifications', smsErr);
-        // Don’t block the booking because SMS failed.
-      }
+      await sendSms(trimmedPhone, userMsg);
+      await sendSms(adminPhone, adminMsg);
 
-      setSuccess('Your pickup has been booked.');
+      setSuccess('Booking confirmed! You will receive an SMS confirmation.');
       setName('');
       setPhone('');
       setAddress('');
-      setGroupSize(1);
-      setPickupTime('');
-
-      // Refresh local bookings so the slot counts update
-      const { data: newBookings, error: loadErr } = await supabase
-        .from('bookings')
-        .select('pickup_time, party_size')
-        .eq('pickup_event_id', eventId);
-
-      if (!loadErr && newBookings) {
-        setBookings(newBookings as ExistingBooking[]);
-      }
+      setPartySize(1);
+      setSelectedSlot('');
+    } catch (err) {
+      console.error('Booking submit error', err);
+      setError('Unexpected error. Please try again.');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
-  if (!anySeatsLeft) {
-    return (
-      <p className="mt-4 text-red-600">
-        This event is fully booked across all time slots. Please choose another
-        date.
-      </p>
-    );
-  }
-
   return (
-    <div className="mt-6">
-      <h2 className="mb-3 text-lg font-semibold">Book your pickup</h2>
+    <form onSubmit={handleSubmit} className="mt-6 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <h2 className="text-sm font-semibold text-slate-800">Book your pickup</h2>
 
-      {error && <p className="mb-2 text-red-600">{error}</p>}
-      {success && <p className="mb-2 text-green-700">{success}</p>}
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <label className="block text-xs font-medium">Name</label>
+          <input
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="space-y-1">
+          <label className="block text-xs font-medium">Phone</label>
+          <input
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-xs font-medium">Pickup address / location</label>
         <input
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-
-        <input
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
-
-        <input
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Pickup Address / Location"
+          className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
         />
+      </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">
-            How many people (INCLUDING YOURSELF)?
-          </label>
-          <input
-            type="number"
-            min={1}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            value={groupSize}
-            onChange={(e) => setGroupSize(Math.max(1, Number(e.target.value) || 1))}
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            Seats are reserved per person. If you’re booking for a group,
-            include everyone travelling.
+      <div className="space-y-1">
+        <label className="block text-xs font-medium">Group size (people)</label>
+        <input
+          type="number"
+          min={1}
+          className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          value={partySize}
+          onChange={(e) => setPartySize(Math.max(1, Number(e.target.value) || 1))}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-xs font-medium">Choose a pickup time</label>
+
+        {availableSlots.length === 0 ? (
+          <p className="text-xs text-red-600">
+            No slots available that can fit your group size right now.
           </p>
-        </div>
+        ) : (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {allSlots.map((slot) => {
+              const remaining = slotRemainingMap[slot] || 0;
+              const disabled = remaining < Math.max(1, partySize || 1);
+              const selected = selectedSlot === slot;
 
-        <div>
-          <p className="mb-1 text-sm">Pickup time:</p>
-          {availableSlots.length === 0 ? (
-            <p className="text-sm text-red-600">
-              No time slots left that can fit your group. Try another date or
-              reduce the group size.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {allSlots.map((slot) => {
-                const short = formatTime(slot);
-                const remaining = slotRemaining[short] ?? 0;
-                const isFull = remaining <= 0;
-                const selected = short === pickupTime;
+              return (
+                <button
+                  key={slot}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setSelectedSlot(slot)}
+                  className={[
+                    'rounded-full px-3 py-1 text-xs border',
+                    selected ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-700 border-slate-300',
+                    disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-sky-500',
+                  ].join(' ')}
+                >
+                  {slot} ({remaining} left)
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-                return (
-                  <button
-                    key={slot}
-                    type="button"
-                    disabled={isFull}
-                    onClick={() => setPickupTime(short)}
-                    className={[
-                      'rounded-full border px-3 py-1 text-sm',
-                      isFull
-                        ? 'cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200 line-through'
-                        : selected
-                        ? 'bg-sky-600 text-white border-sky-600'
-                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
-                    ].join(' ')}
-                  >
-                    {short}{' '}
-                    {isFull ? '(full)' : `(${remaining} left)`}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {success && <p className="text-sm text-emerald-700">{success}</p>}
 
-        <button
-          type="submit"
-          disabled={saving || availableSlots.length === 0}
-          className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-400"
-        >
-          {saving ? 'Booking…' : 'Book Pickup'}
-        </button>
-
-        <p className="text-xs text-slate-500">
-          Total seats left across all time slots:{' '}
-          <strong>
-            {totalCapacity - totalUsed} / {totalCapacity}
-          </strong>{' '}
-          ({capacity} seats per time slot)
-        </p>
-      </form>
-    </div>
+      <button
+        type="submit"
+        disabled={loading || !selectedSlot}
+        className="inline-flex items-center rounded bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+      >
+        {loading ? 'Submitting…' : 'Confirm booking'}
+      </button>
+    </form>
   );
 }
