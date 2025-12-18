@@ -5,8 +5,11 @@ CREATE TABLE `Church` (
     `slug` VARCHAR(191) NOT NULL,
     `createdAt` TIMESTAMP(0) NULL DEFAULT CURRENT_TIMESTAMP(0),
     `smsContactPhone` VARCHAR(191) NULL,
+    `adminEmail` VARCHAR(191) NULL,
+    `passwordHash` VARCHAR(191) NULL,
 
     UNIQUE INDEX `Church_slug_key`(`slug`),
+    UNIQUE INDEX `Church_adminEmail_key`(`adminEmail`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
