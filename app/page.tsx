@@ -4,6 +4,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentChurchSession } from "@/src/lib/auth";
 
+export const dynamic = "force-dynamic";
+
+
 export default async function LandingPage() {
   // ✅ Session guard (no params needed on /)
   const session = await getCurrentChurchSession();

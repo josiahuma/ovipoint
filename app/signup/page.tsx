@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getCurrentChurchSession } from "@/src/lib/auth";
 import SignupForm from "./SignupForm";
 
+export const dynamic = "force-dynamic";
+
 export default async function SignupPage() {
   const session = await getCurrentChurchSession();
 
