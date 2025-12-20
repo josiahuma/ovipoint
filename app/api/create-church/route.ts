@@ -2,10 +2,19 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/src/lib/prisma';
 import bcrypt from 'bcryptjs';
-import { createSessionToken, JWT_COOKIE_NAME } from '@/src/lib/auth';
+import { createSessionToken, getCurrentChurchSession, JWT_COOKIE_NAME } from '@/src/lib/auth';
 
 export async function POST(req: Request) {
   try {
+    // ✅ NEW: prevent logged-in admin from creating another church
+    const existingSession = await getCurrentChurchSession();
+    if (existingSession) {
+      return NextResponse.json(
+        { error: "You are already logged in. Please log out to create a new organisation." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     const {

@@ -1,8 +1,18 @@
 // app/page.tsx
-import Image from 'next/image';
-import Link from 'next/link';
+import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentChurchSession } from "@/src/lib/auth";
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  // ✅ Session guard (no params needed on /)
+  const session = await getCurrentChurchSession();
+  const isLoggedIn = !!session;
+
+  // If logged in, send them to THEIR dashboard (best UX)
+  // If you prefer to show the homepage with the button changed, remove this redirect.
+  // redirect(`/${session.slug}/admin`);
+
   return (
     <main className="min-h-screen bg-slate-50">
       {/* Hero */}
@@ -25,12 +35,22 @@ export default function LandingPage() {
             </p>
 
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center">
-              <a
-                href="/signup"
-                className="inline-flex items-center justify-center rounded-md bg-sky-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
-              >
-                Get your organisation started
-              </a>
+              {!isLoggedIn ? (
+                <Link
+                  href="/signup"
+                  className="inline-flex items-center justify-center rounded-md bg-sky-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+                >
+                  Get your organisation started
+                </Link>
+              ) : (
+                <Link
+                  href={`/${session!.slug}/admin`}
+                  className="inline-flex items-center justify-center rounded-md bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                >
+                  Go to dashboard
+                </Link>
+              )}
+
               <Link
                 href="/book-pickup"
                 className="inline-flex items-center justify-center rounded-md border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
@@ -39,8 +59,14 @@ export default function LandingPage() {
               </Link>
             </div>
 
+            {isLoggedIn && (
+              <p className="text-xs text-slate-600">
+                You&apos;re logged in. To create another organisation, log out first.
+              </p>
+            )}
+
             <p className="text-xs text-slate-500">
-              No app download required. Each organisation gets a simple URL like{' '}
+              No app download required. Each organisation gets a simple URL like{" "}
               <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px]">
                 ovipoint.com/my-organisation
               </span>

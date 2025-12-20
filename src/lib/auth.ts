@@ -10,7 +10,10 @@ export type ChurchSession = {
   adminEmail: string | null;
 };
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET!;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is not defined in environment variables.');
+}
 
 // Create a signed JWT for the admin session
 export function createSessionToken(payload: ChurchSession): string {
