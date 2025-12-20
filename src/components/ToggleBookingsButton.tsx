@@ -49,7 +49,7 @@ export function ToggleBookingsButton({ eventId, initialOpen }: Props) {
       type="button"
       onClick={handleToggle}
       disabled={pending}
-      className="text-xs text-amber-700 hover:underline disabled:opacity-60"
+      className="text-sm text-amber-700 hover:underline disabled:opacity-60"
     >
       {pending ? 'Updating…' : label}
     </button>

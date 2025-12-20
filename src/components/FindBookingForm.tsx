@@ -490,11 +490,11 @@ export function FindBookingForm() {
           </p>
 
           {loadingChurches && (
-            <p className="mt-1 text-xs text-slate-500">Searching organisations…</p>
+            <p className="mt-1 text-sm text-slate-500">Searching organisations…</p>
           )}
 
           {!loadingChurches && orgQuery.trim().length >= 2 && churches.length === 0 && (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-sm text-slate-500">
               No organisations found yet. Check the spelling or try another name.
             </p>
           )}
@@ -580,7 +580,7 @@ export function FindBookingForm() {
                   className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm hover:border-sky-500"
                 >
                   <div className="font-medium">{r.event.title}</div>
-                  <div className="text-xs text-slate-600">
+                  <div className="text-sm text-slate-600">
                     {d.toLocaleDateString(undefined, {
                       weekday: 'short',
                       day: 'numeric',
@@ -603,7 +603,7 @@ export function FindBookingForm() {
           className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3"
         >
           <h2 className="mb-1 text-sm font-semibold">Edit your booking</h2>
-          <p className="mb-2 text-xs text-slate-600">
+          <p className="mb-2 text-sm text-slate-600">
             {selected.event.title} ·{' '}
             {new Date(selected.event.pickupDate).toLocaleDateString(undefined, {
               weekday: 'short',
@@ -614,7 +614,7 @@ export function FindBookingForm() {
           </p>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">Name</label>
+            <label className="block text-sm font-medium">Name</label>
             <input
               type="text"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -624,7 +624,7 @@ export function FindBookingForm() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">Phone</label>
+            <label className="block text-sm font-medium">Phone</label>
             <input
               type="tel"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -634,7 +634,7 @@ export function FindBookingForm() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">Pickup address / location</label>
+            <label className="block text-sm font-medium">Pickup address / location</label>
             <input
               type="text"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
@@ -644,7 +644,7 @@ export function FindBookingForm() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">Group size (people on this booking)</label>
+            <label className="block text-sm font-medium">Group size (people on this booking)</label>
             <input
               type="number"
               min={1}
@@ -658,10 +658,10 @@ export function FindBookingForm() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium">Pickup time</label>
+            <label className="block text-sm font-medium">Pickup time</label>
 
             {availableSlots.length === 0 ? (
-              <p className="text-xs text-red-600">
+              <p className="text-sm text-red-600">
                 No time slots are currently available for this event that can fit your group.
               </p>
             ) : (
@@ -676,7 +676,7 @@ export function FindBookingForm() {
                       type="button"
                       onClick={() => setEditPickupTime(slotShort)}
                       className={[
-                        'rounded-full border px-3 py-1 text-xs',
+                        'rounded-full border px-3 py-1 text-sm',
                         selectedSlot
                           ? 'border-sky-600 bg-sky-600 text-white'
                           : 'border-slate-300 bg-white text-slate-700 hover:border-sky-500',
@@ -690,14 +690,14 @@ export function FindBookingForm() {
             )}
           </div>
 
-          {saveError && <p className="text-xs text-red-600">{saveError}</p>}
-          {saveSuccess && <p className="text-xs text-green-700">{saveSuccess}</p>}
+          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+          {saveSuccess && <p className="text-sm text-green-700">{saveSuccess}</p>}
 
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <button
               type="submit"
               disabled={saving || availableSlots.length === 0}
-              className="inline-flex items-center rounded bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {saving ? 'Saving changes…' : 'Save changes'}
             </button>
@@ -705,7 +705,7 @@ export function FindBookingForm() {
             <button
               type="button"
               onClick={handleExitEdit}
-              className="inline-flex items-center rounded bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-300"
+              className="inline-flex items-center rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-300"
             >
               Close (keep booking)
             </button>
@@ -714,7 +714,7 @@ export function FindBookingForm() {
               type="button"
               disabled={cancelLoading}
               onClick={handleCancelBooking}
-              className="inline-flex items-center rounded bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              className="inline-flex items-center rounded bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
             >
               {cancelLoading ? 'Cancelling…' : 'Cancel this booking'}
             </button>

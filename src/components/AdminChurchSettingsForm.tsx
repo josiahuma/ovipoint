@@ -59,7 +59,7 @@ export function AdminChurchSettingsForm({ church }: Props) {
           value={smsPhone}
           onChange={(e) => setSmsPhone(e.target.value)}
         />
-        <p className="text-xs text-slate-500">
+        <p className="text-sm text-slate-500">
           This number will receive SMS alerts when members book, update, or cancel pickups.
         </p>
       </div>

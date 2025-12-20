@@ -153,7 +153,7 @@ export default async function ChurchEventsPage({ params }: PageProps) {
                       </div>
 
                       <div className="flex flex-col items-end gap-1">
-                        <span className="text-xs text-slate-600">
+                        <span className="text-sm text-slate-600">
                           Seats left:{' '}
                           <strong>
                             {capacityLeft} / {totalCapacity}
@@ -175,7 +175,7 @@ export default async function ChurchEventsPage({ params }: PageProps) {
                       </div>
                     </div>
 
-                    <div className="text-xs text-slate-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       Pickup window: {startTime} – {endTime} · Interval: {event.intervalMinutes} mins
                     </div>
                   </Link>

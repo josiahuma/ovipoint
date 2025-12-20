@@ -68,7 +68,7 @@ export default function LoginPage() {
           className="space-y-3 rounded-xl border border-slate-200 bg-white p-5"
         >
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Admin email
             </label>
             <input
@@ -81,7 +81,7 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Password
             </label>
             <input
@@ -94,7 +94,7 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Church URL
             </label>
             <div className="flex rounded border border-slate-300 bg-white text-sm">

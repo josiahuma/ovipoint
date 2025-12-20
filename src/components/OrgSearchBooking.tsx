@@ -81,7 +81,7 @@ export function OrgSearchBooking() {
     <div className="space-y-4">
       {/* Search */}
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-slate-700">
+        <label className="block text-sm font-medium text-slate-700">
           Search for your church or organisation
         </label>
         <input
@@ -167,7 +167,7 @@ export function OrgSearchBooking() {
                           Capacity: {event.capacity}
                         </span>
                       </div>
-                      <div className="mt-1 text-xs text-slate-600">
+                      <div className="mt-1 text-sm text-slate-600">
                         {date.toLocaleDateString(undefined, {
                           weekday: 'short',
                           day: 'numeric',

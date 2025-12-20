@@ -82,7 +82,7 @@ export default function SignupPage() {
         >
           {/* church name */}
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Church or organisation name
             </label>
             <input
@@ -96,7 +96,7 @@ export default function SignupPage() {
 
           {/* slug */}
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Preferred URL
             </label>
             <div className="flex rounded border border-slate-300 bg-white text-sm">
@@ -118,7 +118,7 @@ export default function SignupPage() {
 
           {/* email (collected for future auth) */}
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Admin email
             </label>
             <input
@@ -132,7 +132,7 @@ export default function SignupPage() {
 
           {/* password (not used yet) */}
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Password
             </label>
             <input
@@ -146,7 +146,7 @@ export default function SignupPage() {
 
           {/* mobile */}
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Admin mobile (optional, for SMS alerts later)
             </label>
             <input

@@ -23,8 +23,8 @@ export default async function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-10 lg:flex-row lg:items-center">
           {/* Copy side */}
           <div className="flex-1 space-y-4">
-            <span className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
-              New • Bus pickup booking for churches &amp; groups
+            <span className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-sm font-semibold text-sky-700">
+              New • pickup booking service for churches &amp; groups
             </span>
 
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
@@ -63,12 +63,12 @@ export default async function LandingPage() {
             </div>
 
             {isLoggedIn && (
-              <p className="text-xs text-slate-600">
+              <p className="text-sm text-slate-600">
                 You&apos;re logged in. To create another organisation, log out first.
               </p>
             )}
 
-            <p className="text-xs text-slate-500">
+            <p className="text-sm text-slate-500">
               No app download required. Each organisation gets a simple URL like{" "}
               <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px]">
                 ovipoint.com/my-organisation
@@ -106,19 +106,19 @@ export default async function LandingPage() {
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs font-semibold text-sky-700">
+              <div className="mb-2 text-sm font-semibold text-sky-700">
                 1. Create your space
               </div>
               <p className="text-sm text-slate-700">
                 Sign up once, choose a URL like{' '}
-                <span className="rounded bg-white px-1 font-mono text-xs">
+                <span className="rounded bg-white px-1 font-mono text-sm">
                   ovipoint.com/your-church
                 </span>{' '}
                 and keep pickups for your community only.
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs font-semibold text-sky-700">
+              <div className="mb-2 text-sm font-semibold text-sky-700">
                 2. Add pickup dates &amp; slots
               </div>
               <p className="text-sm text-slate-700">
@@ -127,7 +127,7 @@ export default async function LandingPage() {
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 text-xs font-semibold text-sky-700">
+              <div className="mb-2 text-sm font-semibold text-sky-700">
                 3. Riders book – you get clean lists
               </div>
               <p className="text-sm text-slate-700">
@@ -166,7 +166,7 @@ export default async function LandingPage() {
               <li>• Get SMS or email confirmations</li>
             </ul>
 
-            <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            <div className="mt-4 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-800">
               Already using Ovipoint?{' '}
               <Link
                 href="/find-booking"
@@ -182,7 +182,7 @@ export default async function LandingPage() {
 
       {/* Tiny footer */}
       <footer className="bg-slate-50">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {new Date().getFullYear()} Ovipoint. Built to simplify bus
             pickups.

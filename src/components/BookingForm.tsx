@@ -78,7 +78,13 @@ export function BookingForm({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [partySize, setPartySize] = useState(1);
+ const [partySizeInput, setPartySizeInput] = useState('1');
+
+ const partySize = useMemo(() => {
+  const n = parseInt(partySizeInput, 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}, [partySizeInput]);
+
 
   const [selectedSlot, setSelectedSlot] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -126,7 +132,7 @@ export function BookingForm({
     const trimmedName = name.trim();
     const trimmedPhone = phone.trim();
     const trimmedAddress = address.trim();
-    const size = Math.max(1, Number(partySize || 1));
+    const size = partySize;
 
     if (!trimmedName || !trimmedPhone || !trimmedAddress) {
       setError('Please fill in name, phone, and address.');
@@ -186,7 +192,7 @@ export function BookingForm({
       setName('');
       setPhone('');
       setAddress('');
-      setPartySize(1);
+      setPartySizeInput('1');
       setSelectedSlot('');
     } catch (err) {
       console.error('Booking submit error', err);
@@ -202,7 +208,7 @@ export function BookingForm({
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
-          <label className="block text-xs font-medium">Name</label>
+          <label className="block text-sm font-medium">Name</label>
           <input
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             value={name}
@@ -211,7 +217,7 @@ export function BookingForm({
         </div>
 
         <div className="space-y-1">
-          <label className="block text-xs font-medium">Phone</label>
+          <label className="block text-sm font-medium">Phone</label>
           <input
             className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             value={phone}
@@ -221,7 +227,7 @@ export function BookingForm({
       </div>
 
       <div className="space-y-1">
-        <label className="block text-xs font-medium">Pickup address / location</label>
+        <label className="block text-sm font-medium">Pickup address / location</label>
         <input
           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
           value={address}
@@ -230,21 +236,34 @@ export function BookingForm({
       </div>
 
       <div className="space-y-1">
-        <label className="block text-xs font-medium">Group size (people)</label>
+        <label className="block text-sm font-medium">Enter the total number of people (INCLUDING YOURSELF)</label>
         <input
-          type="number"
-          min={1}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-          value={partySize}
-          onChange={(e) => setPartySize(Math.max(1, Number(e.target.value) || 1))}
+          value={partySizeInput}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => {
+            // keep digits only (so user can't type "e", "-", etc.)
+            const digitsOnly = e.target.value.replace(/[^\d]/g, '');
+            setPartySizeInput(digitsOnly);
+          }}
+          onBlur={() => {
+            // normalize on blur
+            const n = parseInt(partySizeInput, 10);
+            if (!Number.isFinite(n) || n < 1) setPartySizeInput('1');
+            else setPartySizeInput(String(n));
+          }}
         />
       </div>
 
+
       <div className="space-y-1">
-        <label className="block text-xs font-medium">Choose a pickup time</label>
+        <label className="block text-sm font-medium">Choose a pickup time</label>
 
         {availableSlots.length === 0 ? (
-          <p className="text-xs text-red-600">
+          <p className="text-sm text-red-600">
             No slots available that can fit your group size right now.
           </p>
         ) : (
@@ -261,7 +280,7 @@ export function BookingForm({
                   disabled={disabled}
                   onClick={() => setSelectedSlot(slot)}
                   className={[
-                    'rounded-full px-3 py-1 text-xs border',
+                    'rounded-full px-3 py-1 text-sm border',
                     selected ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-700 border-slate-300',
                     disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-sky-500',
                   ].join(' ')}

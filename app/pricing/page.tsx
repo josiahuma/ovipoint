@@ -39,7 +39,7 @@ export default function PricingPage() {
               For churches running regular Sunday buses.
             </p>
             <p className="mb-1 text-2xl font-bold">£9.99</p>
-            <p className="mb-4 text-xs text-slate-500">per month, per church</p>
+            <p className="mb-4 text-sm text-slate-500">per month, per church</p>
             <ul className="mb-6 flex-1 space-y-2 text-sm text-slate-700">
               <li>• Everything in Starter</li>
               <li>• Up to 1,000 bookings / month</li>

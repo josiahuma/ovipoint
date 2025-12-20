@@ -129,7 +129,7 @@ export default async function EventPage({ params }: PageProps) {
           <p>Capacity per time slot: {event.capacity ?? 0}</p>
 
           {isPaused && !isPast && (
-            <p className="text-xs text-amber-700">
+            <p className="text-sm text-amber-700">
               Bookings for this pickup date are currently paused by the church.
             </p>
           )}

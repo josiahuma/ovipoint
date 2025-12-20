@@ -281,14 +281,14 @@ export function AdminEventForm({
                     <button
                       type="button"
                       onClick={handleAddMultiDate}
-                      className="rounded bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-300"
+                      className="rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-300"
                     >
                       Add date
                     </button>
                   </div>
 
                   {multiDates.length > 0 ? (
-                    <ul className="space-y-1 text-xs text-slate-700">
+                    <ul className="space-y-1 text-sm text-slate-700">
                       {multiDates.map((d) => (
                         <li
                           key={d}
@@ -306,7 +306,7 @@ export function AdminEventForm({
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-sm text-slate-500">
                       Add each date this event should run on (e.g. all Sundays in a month).
                     </p>
                   )}
@@ -369,7 +369,7 @@ export function AdminEventForm({
       {error && <p className="text-sm text-red-600">{error}</p>}
       {successMessage && <p className="text-sm text-green-700">{successMessage}</p>}
       {shareLink && (
-        <p className="text-xs text-slate-600">
+        <p className="text-sm text-slate-600">
           Share this link with your members:{' '}
           <code className="rounded bg-slate-100 px-2 py-1">{shareLink}</code>
         </p>

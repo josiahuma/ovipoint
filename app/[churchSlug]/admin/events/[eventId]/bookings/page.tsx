@@ -98,7 +98,7 @@ export default async function EventBookingsPage({ params }: PageProps) {
             <h1 className="text-2xl font-bold">Bookings – {event.title}</h1>
             <p className="text-slate-600 text-sm">{church.name}</p>
 
-            <p className="text-slate-500 text-xs mt-1">
+            <p className="text-slate-500 text-sm mt-1">
               {pickupDateLabel}
               {startTime && endTime ? (
                 <>

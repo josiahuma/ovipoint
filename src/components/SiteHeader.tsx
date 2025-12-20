@@ -148,7 +148,7 @@ export function SiteHeader() {
 
               <div className="flex flex-col leading-tight">
                 <span className="text-xl font-bold tracking-tight">Ovipoint</span>
-                <span className="hidden text-xs text-slate-500 sm:inline">
+                <span className="hidden text-sm text-slate-500 sm:inline">
                   Pickup booking for churches &amp; groups
                 </span>
               </div>
@@ -337,7 +337,7 @@ export function SiteHeader() {
 
       {/* Logged-in strip */}
       {authState === 'loggedIn' && (
-        <div className="w-full border-t border-slate-200 bg-slate-50 py-1 text-xs text-slate-600">
+        <div className="w-full border-t border-slate-200 bg-slate-50 py-1 text-sm text-slate-600">
           <div className="mx-auto max-w-7xl px-4">
             You&apos;re logged in as{' '}
             <span className="font-medium">
