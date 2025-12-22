@@ -91,6 +91,15 @@ function formatTime(value: Date | string | null | undefined): string {
   return toHHMMSS(value).slice(0, 5);
 }
 
+function mapsUrl(address: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
+function wazeUrl(address: string) {
+  return `https://waze.com/ul?q=${encodeURIComponent(address)}&navigate=yes`;
+}
+
+
 export default async function ChurchDashboardPage({ params }: PageProps) {
   const { churchSlug } = await params;
 
@@ -351,26 +360,80 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                 const timeShort = formatTime(booking.pickupTime);
                 const size = booking.partySize ?? 1;
 
+                const bookingHref = `/${church.slug}/admin/bookings/${booking.id.toString()}`;
+                const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  booking.address
+                )}`;
+                const wazeHref = `https://waze.com/ul?q=${encodeURIComponent(booking.address)}&navigate=yes`;
+
                 return (
-                  <div
-                    key={String(booking.id)}
-                    className="flex flex-col rounded border border-slate-200 bg-slate-50 px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold text-slate-800">{booking.name}</div>
-                      <span className="font-mono text-[11px] text-slate-600">{timeShort}</span>
-                    </div>
+                  <div key={String(booking.id)} className="rounded border border-slate-200 bg-slate-50">
+                    {/* Only THIS part navigates */}
+                    <Link href={bookingHref} className="block px-3 py-2 hover:bg-slate-100">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-slate-800">{booking.name}</div>
+                        <span className="font-mono text-[11px] text-slate-600">{timeShort}</span>
+                      </div>
 
-                    <div className="mt-0.5 text-[11px] text-slate-600">
-                      {event.title} · {formatDate(event.pickupDate)}
-                    </div>
+                      <div className="mt-0.5 text-[11px] text-slate-600">
+                        {event.title} · {formatDate(event.pickupDate)}
+                      </div>
 
-                    <div className="mt-0.5 text-[11px] text-slate-500">Party size: {size}</div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">{booking.address}</div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">Phone: {booking.phone}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">Party size: {size}</div>
+                    </Link>
+
+                    {/* Non-clickable info & actions */}
+                    <div className="px-3 pb-2 text-[11px] text-slate-500 space-y-1">
+                      <div>
+                        Address:{" "}
+                        <a
+                          href={mapsHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-700 hover:underline"
+                        >
+                          {booking.address}
+                        </a>
+                      </div>
+
+                      <div>
+                        Phone:{" "}
+                        <a href={`tel:${booking.phone}`} className="text-sky-700 hover:underline">
+                          {booking.phone}
+                        </a>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <a
+                          href={`tel:${booking.phone}`}
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] hover:bg-slate-100"
+                        >
+                          Call
+                        </a>
+
+                        <a
+                          href={mapsHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] hover:bg-slate-100"
+                        >
+                          Google Maps
+                        </a>
+
+                        <a
+                          href={wazeHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] hover:bg-slate-100"
+                        >
+                          Waze
+                        </a>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
+
             </div>
           )}
         </section>
