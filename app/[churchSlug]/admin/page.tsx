@@ -243,7 +243,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
             </Link>
             <Link
               href={`/${church.slug}/admin/events/new`}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700"
+              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700"
             >
               + New event
             </Link>
@@ -253,25 +253,25 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
         {/* Stats */}
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">Upcoming events</p>
+            <p className="text-sm font-semibold text-slate-500">Upcoming events</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{upcomingEvents.length}</p>
             <p className="mt-1 text-[11px] text-slate-500">From today onwards</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">Past events</p>
+            <p className="text-sm font-semibold text-slate-500">Past events</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{pastEvents.length}</p>
             <p className="mt-1 text-[11px] text-slate-500">Auto-archived</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">Total passengers</p>
+            <p className="text-sm font-semibold text-slate-500">Total passengers</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{totalSeatCountAll}</p>
             <p className="mt-1 text-[11px] text-slate-500">People booked across all events</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-500">Upcoming occupancy</p>
+            <p className="text-sm font-semibold text-slate-500">Upcoming occupancy</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{occupancyPercent}%</p>
             <p className="mt-1 text-[11px] text-slate-500">
               {upcomingSeatsBooked} passengers / {totalUpcomingCapacity} seats
@@ -283,7 +283,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-slate-800 mb-2">Upcoming capacity usage</h2>
-            <p className="text-xs text-slate-600 mb-3">How full your upcoming buses are.</p>
+            <p className="text-sm text-slate-600 mb-3">How full your upcoming buses are.</p>
 
             <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
@@ -292,7 +292,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
               />
             </div>
 
-            <p className="mt-2 text-xs text-slate-600">
+            <p className="mt-2 text-sm text-slate-600">
               {totalUpcomingCapacity === 0
                 ? 'No upcoming events configured yet.'
                 : `${upcomingSeatsBooked} of ${totalUpcomingCapacity} available seats are booked.`}
@@ -301,10 +301,10 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
 
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-slate-800 mb-2">Booking breakdown</h2>
-            <p className="text-xs text-slate-600 mb-3">Upcoming vs past passengers.</p>
+            <p className="text-sm text-slate-600 mb-3">Upcoming vs past passengers.</p>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-600">Upcoming passengers</span>
                 <span className="font-semibold">{upcomingSeatsBooked}</span>
               </div>
@@ -321,7 +321,7 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
                 />
               </div>
 
-              <div className="flex items-center justify-between text-xs mt-3">
+              <div className="flex items-center justify-between text-sm mt-3">
                 <span className="text-slate-600">Past passengers</span>
                 <span className="font-semibold">{pastSeatsBooked}</span>
               </div>
@@ -345,17 +345,17 @@ export default async function ChurchDashboardPage({ params }: PageProps) {
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-800">Latest bookings</h2>
-            <Link href={`/${church.slug}/admin/events`} className="text-xs text-sky-600 hover:underline">
+            <Link href={`/${church.slug}/admin/events`} className="text-sm text-sky-600 hover:underline">
               Go to events &amp; full booking lists
             </Link>
           </div>
 
           {latestBookings.length === 0 ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-sm text-slate-500">
               No bookings yet. Once members start booking pickups, they will appear here.
             </p>
           ) : (
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2 text-sm">
               {latestBookings.map(({ booking, event }) => {
                 const timeShort = formatTime(booking.pickupTime);
                 const size = booking.partySize ?? 1;
